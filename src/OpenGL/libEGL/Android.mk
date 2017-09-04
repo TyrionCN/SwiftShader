@@ -8,7 +8,11 @@ COMMON_CFLAGS := \
 	-Wno-unused-parameter \
 	-Wno-implicit-exception-spec-mismatch \
 	-Wno-overloaded-virtual \
-	-DANDROID_PLATFORM_SDK_VERSION=$(PLATFORM_SDK_VERSION)
+	-Wno-attributes \
+	-Wno-unknown-attributes \
+	-Wno-unknown-warning-option \
+	-DANDROID_PLATFORM_SDK_VERSION=$(PLATFORM_SDK_VERSION) \
+	-DNO_SANITIZE_FUNCTION=
 
 ifneq (16,${PLATFORM_SDK_VERSION})
 COMMON_CFLAGS += -Xclang -fuse-init-array
@@ -34,6 +38,13 @@ COMMON_SHARED_LIBRARIES := \
 	liblog \
 	libcutils \
 	libhardware
+
+# Project Treble is introduced from Oreo
+ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 26 && echo Oreo),Oreo)
+COMMON_SHARED_LIBRARIES += libnativewindow
+COMMON_STATIC_LIBRARIES += libarect
+COMMON_HEADER_LIBRARIES += libnativebase_headers
+endif
 
 # gralloc1 is introduced from N MR1
 ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 25 && echo NMR1),NMR1)
@@ -70,6 +81,7 @@ LOCAL_SRC_FILES := $(COMMON_SRC_FILES)
 LOCAL_C_INCLUDES += $(COMMON_C_INCLUDES)
 LOCAL_STATIC_LIBRARIES += swiftshader_top_debug $(COMMON_STATIC_LIBRARIES)
 LOCAL_SHARED_LIBRARIES += $(COMMON_SHARED_LIBRARIES)
+LOCAL_HEADER_LIBRARIES := $(COMMON_HEADER_LIBRARIES)
 LOCAL_LDFLAGS += $(COMMON_LDFLAGS)
 LOCAL_CFLAGS += $(COMMON_CFLAGS) -UNDEBUG -g -O0
 include $(BUILD_SHARED_LIBRARY)
@@ -93,6 +105,7 @@ LOCAL_SRC_FILES := $(COMMON_SRC_FILES)
 LOCAL_C_INCLUDES += $(COMMON_C_INCLUDES)
 LOCAL_STATIC_LIBRARIES += swiftshader_top_release $(COMMON_STATIC_LIBRARIES)
 LOCAL_SHARED_LIBRARIES += $(COMMON_SHARED_LIBRARIES)
+LOCAL_HEADER_LIBRARIES := $(COMMON_HEADER_LIBRARIES)
 LOCAL_LDFLAGS += $(COMMON_LDFLAGS)
 LOCAL_CFLAGS += $(COMMON_CFLAGS) -DANGLE_DISABLE_TRACE
 include $(BUILD_SHARED_LIBRARY)

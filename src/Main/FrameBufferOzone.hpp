@@ -1,4 +1,4 @@
-// Copyright 2016 The SwiftShader Authors. All Rights Reserved.
+// Copyright 2017 The SwiftShader Authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,23 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef sw_FrameBufferAndroid_hpp
-#define sw_FrameBufferAndroid_hpp
+#ifndef sw_FrameBufferOzone_hpp
+#define sw_FrameBufferOzone_hpp
 
 #include "Main/FrameBuffer.hpp"
-#include "Common/Debug.hpp"
-
-struct ANativeWindow;
-struct ANativeWindowBuffer;
 
 namespace sw
 {
-	class FrameBufferAndroid : public FrameBuffer
+	class FrameBufferOzone : public FrameBuffer
 	{
 	public:
-		FrameBufferAndroid(ANativeWindow* window, int width, int height);
+		FrameBufferOzone(intptr_t display, intptr_t window, int width, int height);
 
-		~FrameBufferAndroid() override;
+		~FrameBufferOzone() override;
 
 		void flip(void *source, Format sourceFormat, size_t sourceStride) override {blit(source, 0, 0, sourceFormat, sourceStride);};
 		void blit(void *source, const Rect *sourceRect, const Rect *destRect, Format sourceFormat, size_t sourceStride) override;
@@ -36,12 +32,9 @@ namespace sw
 		void *lock() override;
 		void unlock() override;
 
-		bool setSwapRectangle(int l, int t, int w, int h);
-
 	private:
-		ANativeWindow* nativeWindow;
-		ANativeWindowBuffer* buffer;
+		sw::Surface* buffer;
 	};
 }
 
-#endif   // sw_FrameBufferAndroid
+#endif   // sw_FrameBufferOzone_hpp
