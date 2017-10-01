@@ -39,8 +39,6 @@ namespace sw
 
 	extern int batchSize;
 	extern int threadCount;
-	extern int unitCount;
-	extern int clusterCount;
 
 	enum TranscendentalPrecision
 	{
@@ -405,6 +403,8 @@ namespace sw
 			void resetTimers();
 		#endif
 
+		static int getClusterCount() { return clusterCount; }
+
 	private:
 		static void threadFunction(void *parameters);
 		void threadLoop(int threadIndex);
@@ -460,16 +460,26 @@ namespace sw
 		PixelProgress pixelProgress[16];
 		Task task[16];   // Current tasks for threads
 
-		enum {DRAW_COUNT = 16};   // Number of draw calls buffered
+		enum {
+			DRAW_COUNT = 16,   // Number of draw calls buffered (must be power of 2)
+			DRAW_COUNT_BITS = DRAW_COUNT - 1,
+		};
 		DrawCall *drawCall[DRAW_COUNT];
 		DrawCall *drawList[DRAW_COUNT];
 
 		AtomicInt currentDraw;
 		AtomicInt nextDraw;
 
-		Task taskQueue[32];
-		unsigned int qHead;
-		unsigned int qSize;
+		enum {
+			TASK_COUNT = 32,   // Size of the task queue (must be power of 2)
+			TASK_COUNT_BITS = TASK_COUNT - 1,
+		};
+		Task taskQueue[TASK_COUNT];
+		AtomicInt qHead;
+		AtomicInt qSize;
+
+		static AtomicInt unitCount;
+		static AtomicInt clusterCount;
 
 		MutexLock schedulerMutex;
 

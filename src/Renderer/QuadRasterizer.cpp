@@ -49,6 +49,7 @@ namespace sw
 
 		constants = *Pointer<Pointer<Byte>>(data + OFFSET(DrawData,constants));
 		occlusion = 0;
+		int clusterCount = Renderer::getClusterCount();
 
 		Do
 		{
@@ -283,12 +284,14 @@ namespace sw
 					for(unsigned int q = 0; q < state.multiSample; q++)
 					{
 						Short4 mask = CmpGT(xxxx, xLeft[q]) & CmpGT(xRight[q], xxxx);
-						cMask[q] = SignMask(Pack(mask, mask)) & 0x0000000F;
+						cMask[q] = SignMask(PackSigned(mask, mask)) & 0x0000000F;
 					}
 
 					quad(cBuffer, zBuffer, sBuffer, cMask, x, y);
 				}
 			}
+
+			int clusterCount = Renderer::getClusterCount();
 
 			for(int index = 0; index < RENDERTARGETS; index++)
 			{

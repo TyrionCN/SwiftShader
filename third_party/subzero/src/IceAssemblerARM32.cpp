@@ -3381,6 +3381,62 @@ void AssemblerARM32::vsubd(const Operand *OpDd, const Operand *OpDn,
   emitVFPddd(Cond, VsubdOpcode, OpDd, OpDn, OpDm, Vsubd);
 }
 
+void AssemblerARM32::vqaddqi(Type ElmtTy, const Operand *OpQd,
+                             const Operand *OpQm, const Operand *OpQn) {
+  // VQADD (integer) - ARM section A8.6.369, encoding A1:
+  //   vqadd<c><q>.s<size> {<Qd>,} <Qn>, <Qm>
+  //
+  // 111100100Dssnnn0ddd00000N1M1mmm0 where Dddd=OpQd, Nnnn=OpQn, Mmmm=OpQm,
+  // size is 8, 16, 32, or 64.
+  assert(isScalarIntegerType(ElmtTy) &&
+         "vqaddqi expects vector with integer element type");
+  constexpr const char *Vqaddqi = "vqaddqi";
+  constexpr IValueT VqaddqiOpcode = B4;
+  emitSIMDqqq(VqaddqiOpcode, ElmtTy, OpQd, OpQm, OpQn, Vqaddqi);
+}
+
+void AssemblerARM32::vqaddqu(Type ElmtTy, const Operand *OpQd,
+                             const Operand *OpQm, const Operand *OpQn) {
+  // VQADD (integer) - ARM section A8.6.369, encoding A1:
+  //   vqadd<c><q>.s<size> {<Qd>,} <Qn>, <Qm>
+  //
+  // 111100110Dssnnn0ddd00000N1M1mmm0 where Dddd=OpQd, Nnnn=OpQn, Mmmm=OpQm,
+  // size is 8, 16, 32, or 64.
+  assert(isScalarIntegerType(ElmtTy) &&
+         "vqaddqu expects vector with integer element type");
+  constexpr const char *Vqaddqu = "vqaddqu";
+  constexpr IValueT VqaddquOpcode = B24 | B4;
+  emitSIMDqqq(VqaddquOpcode, ElmtTy, OpQd, OpQm, OpQn, Vqaddqu);
+}
+
+void AssemblerARM32::vqsubqi(Type ElmtTy, const Operand *OpQd,
+                             const Operand *OpQm, const Operand *OpQn) {
+  // VQSUB (integer) - ARM section A8.6.369, encoding A1:
+  //   vqsub<c><q>.s<size> {<Qd>,} <Qn>, <Qm>
+  //
+  // 111100100Dssnnn0ddd00010N1M1mmm0 where Dddd=OpQd, Nnnn=OpQn, Mmmm=OpQm,
+  // size is 8, 16, 32, or 64.
+  assert(isScalarIntegerType(ElmtTy) &&
+         "vqsubqi expects vector with integer element type");
+  constexpr const char *Vqsubqi = "vqsubqi";
+  constexpr IValueT VqsubqiOpcode = B9 | B4;
+  emitSIMDqqq(VqsubqiOpcode, ElmtTy, OpQd, OpQm, OpQn, Vqsubqi);
+}
+
+void AssemblerARM32::vqsubqu(Type ElmtTy, const Operand *OpQd,
+                             const Operand *OpQm, const Operand *OpQn) {
+  // VQSUB (integer) - ARM section A8.6.369, encoding A1:
+  //   vqsub<c><q>.s<size> {<Qd>,} <Qn>, <Qm>
+  //
+  // 111100110Dssnnn0ddd00010N1M1mmm0 where Dddd=OpQd, Nnnn=OpQn, Mmmm=OpQm,
+  // size is 8, 16, 32, or 64.
+  assert(isScalarIntegerType(ElmtTy) &&
+         "vqsubqu expects vector with integer element type");
+  constexpr const char *Vqsubqu = "vqsubqu";
+  constexpr IValueT VqsubquOpcode = B24 | B9 | B4;
+  emitSIMDqqq(VqsubquOpcode, ElmtTy, OpQd, OpQm, OpQn, Vqsubqu);
+}
+
 void AssemblerARM32::vsubqi(Type ElmtTy, const Operand *OpQd,
                             const Operand *OpQm, const Operand *OpQn) {
   // VSUB (integer) - ARM section A8.8.414, encoding A1:
@@ -3499,34 +3555,19 @@ void AssemblerARM32::vshlqc(Type ElmtTy, const Operand *OpQd,
                    encodeSIMDShiftImm6(ST_Vshl, ElmtTy, Imm6), Vshl);
 }
 
-void AssemblerARM32::vshrqic(Type ElmtTy, const Operand *OpQd,
-                             const Operand *OpQm,
-                             const ConstantInteger32 *Imm6) {
+void AssemblerARM32::vshrqc(Type ElmtTy, const Operand *OpQd,
+                            const Operand *OpQm, const ConstantInteger32 *Imm6,
+                            InstARM32::FPSign Sign) {
   // VSHR - ARM section A8.8.398, encoding A1:
   //   vshr Qd, Qm, #Imm
   //
   // 1111001U1Diiiiiidddd0101LQM1mmmm where Ddddd=Qd, Mmmmm=Qm, iiiiii=Imm6,
-  // 0=U, 1=Q, 0=L.
+  // U=Unsigned, Q=1, L=0.
   assert(isScalarIntegerType(ElmtTy) &&
          "vshr expects vector with integer element type");
   constexpr const char *Vshr = "vshr";
-  constexpr IValueT VshrOpcode = B23 | B4;
-  emitSIMDShiftqqc(VshrOpcode, OpQd, OpQm,
-                   encodeSIMDShiftImm6(ST_Vshr, ElmtTy, Imm6), Vshr);
-}
-
-void AssemblerARM32::vshrquc(Type ElmtTy, const Operand *OpQd,
-                             const Operand *OpQm,
-                             const ConstantInteger32 *Imm6) {
-  // VSHR - ARM section A8.8.398, encoding A1:
-  //   vshr Qd, Qm, #Imm
-  //
-  // 1111001U1Diiiiiidddd0101LQM1mmmm where Ddddd=Qd, Mmmmm=Qm, iiiiii=Imm6,
-  // 0=U, 1=Q, 0=L.
-  assert(isScalarIntegerType(ElmtTy) &&
-         "vshr expects vector with integer element type");
-  constexpr const char *Vshr = "vshr";
-  constexpr IValueT VshrOpcode = B23 | B4;
+  const IValueT VshrOpcode =
+      (Sign == InstARM32::FS_Unsigned ? B24 : 0) | B23 | B4;
   emitSIMDShiftqqc(VshrOpcode, OpQd, OpQm,
                    encodeSIMDShiftImm6(ST_Vshr, ElmtTy, Imm6), Vshr);
 }
