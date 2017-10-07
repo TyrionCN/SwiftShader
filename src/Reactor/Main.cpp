@@ -288,6 +288,18 @@ TEST(SubzeroReactorTest, Swizzle)
 			*Pointer<Short4>(out + 16 * (512 + 4)) = UnpackLow(Byte8(1, 2, 3, 4, 5, 6, 7, 8), Byte8(9, 10, 11, 12, 13, 14, 15, 16));
 			*Pointer<Short4>(out + 16 * (512 + 5)) = UnpackHigh(Byte8(1, 2, 3, 4, 5, 6, 7, 8), Byte8(9, 10, 11, 12, 13, 14, 15, 16));
 
+			for(int i = 0; i < 256; i++)
+			{
+				*Pointer<Short4>(out + 16 * (512 + 6) + (8 * i)) =
+                                    Swizzle(Short4(1, 2, 3, 4), i);
+			}
+
+			for(int i = 0; i < 256; i++)
+			{
+				*Pointer<Int4>(out + 16 * (512 + 6 + i) + (8 * 256)) =
+                                    Swizzle(Int4(1, 2, 3, 4), i);
+			}
+
 			Return(0);
 		}
 
@@ -298,7 +310,7 @@ TEST(SubzeroReactorTest, Swizzle)
 			struct
 			{
 				float f[256 + 256 + 2][4];
-				int i[4][4];
+				int i[388][4];
 			} out;
 
 			memset(&out, 0, sizeof(out));
@@ -351,6 +363,26 @@ TEST(SubzeroReactorTest, Swizzle)
 			EXPECT_EQ(out.i[3][1], 0x10080F07);
 			EXPECT_EQ(out.i[3][2], 0x00000000);
 			EXPECT_EQ(out.i[3][3], 0x00000000);
+
+			for(int i = 0; i < 256; i++)
+			{
+				EXPECT_EQ(out.i[4 + i/2][0 + (i%2) * 2] & 0xFFFF,
+                                          ((i >> 0) & 0x03) + 1);
+				EXPECT_EQ(out.i[4 + i/2][0 + (i%2) * 2] >> 16,
+                                          ((i >> 2) & 0x03) + 1);
+				EXPECT_EQ(out.i[4 + i/2][1 + (i%2) * 2] & 0xFFFF,
+                                          ((i >> 4) & 0x03) + 1);
+				EXPECT_EQ(out.i[4 + i/2][1 + (i%2) * 2] >> 16,
+                                          ((i >> 6) & 0x03) + 1);
+			}
+
+			for(int i = 0; i < 256; i++)
+			{
+				EXPECT_EQ(out.i[132 + i][0], ((i >> 0) & 0x03) + 1);
+				EXPECT_EQ(out.i[132 + i][1], ((i >> 2) & 0x03) + 1);
+				EXPECT_EQ(out.i[132 + i][2], ((i >> 4) & 0x03) + 1);
+				EXPECT_EQ(out.i[132 + i][3], ((i >> 6) & 0x03) + 1);
+			}
 		}
 	}
 
@@ -814,6 +846,144 @@ TEST(SubzeroReactorTest, Unpack)
 
 			EXPECT_EQ(out[1][0], 0xEFEF1212);
 			EXPECT_EQ(out[1][1], 0xABABCDCD);
+		}
+	}
+
+	delete routine;
+}
+
+TEST(SubzeroReactorTest, Pack)
+{
+	Routine *routine = nullptr;
+
+	{
+		Function<Int(Pointer<Byte>)> function;
+		{
+			Pointer<Byte> out = function.Arg<0>();
+
+			*Pointer<SByte8>(out + 8 * 0) =
+				PackSigned(Short4(-1, -2, 1, 2),
+					   Short4(3, 4, -3, -4));
+
+			*Pointer<Byte8>(out + 8 * 1) =
+				PackUnsigned(Short4(-1, -2, 1, 2),
+					     Short4(3, 4, -3, -4));
+
+			*Pointer<Short8>(out + 8 * 2) =
+				PackSigned(Int4(-1, -2, 1, 2),
+					   Int4(3, 4, -3, -4));
+
+			*Pointer<UShort8>(out + 8 * 4) =
+				PackUnsigned(Int4(-1, -2, 1, 2),
+					     Int4(3, 4, -3, -4));
+
+			Return(0);
+		}
+
+		routine = function(L"one");
+
+		if(routine)
+		{
+			int out[6][2];
+
+			memset(&out, 0, sizeof(out));
+
+			int(*callable)(void*) = (int(*)(void*))routine->getEntry();
+			callable(&out);
+
+			EXPECT_EQ(out[0][0], 0x0201FEFF);
+			EXPECT_EQ(out[0][1], 0xFCFD0403);
+
+			EXPECT_EQ(out[1][0], 0x02010000);
+			EXPECT_EQ(out[1][1], 0x00000403);
+
+			EXPECT_EQ(out[2][0], 0xFFFEFFFF);
+			EXPECT_EQ(out[2][1], 0x00020001);
+
+			EXPECT_EQ(out[3][0], 0x00040003);
+			EXPECT_EQ(out[3][1], 0xFFFCFFFD);
+
+			EXPECT_EQ(out[4][0], 0x00000000);
+			EXPECT_EQ(out[4][1], 0x00020001);
+
+			EXPECT_EQ(out[5][0], 0x00040003);
+			EXPECT_EQ(out[5][1], 0x00000000);
+		}
+	}
+
+	delete routine;
+}
+
+TEST(SubzeroReactorTest, MulHigh) {
+	Routine *routine = nullptr;
+
+	{
+		Function<Int(Pointer<Byte>)> function;
+		{
+			Pointer<Byte> out = function.Arg<0>();
+
+			*Pointer<Short4>(out + 8 * 0) =
+				MulHigh(Short4(0x1aa, 0x2dd, 0x3ee, 0xF422),
+					Short4(0x1bb, 0x2cc, 0x3ff, 0xF411));
+			*Pointer<UShort4>(out + 8 * 1) =
+				MulHigh(UShort4(0x1aa, 0x2dd, 0x3ee, 0xF422),
+					UShort4(0x1bb, 0x2cc, 0x3ff, 0xF411));
+
+			// (U)Short8 variants are mentioned but unimplemented
+			Return(0);
+		}
+
+		routine = function(L"one");
+
+		if(routine)
+		{
+			int out[2][2];
+
+			memset(&out, 0, sizeof(out));
+
+			int(*callable)(void*) = (int(*)(void*))routine->getEntry();
+			callable(&out);
+
+			EXPECT_EQ((unsigned)out[0][0], 0x00080002);
+			EXPECT_EQ((unsigned)out[0][1], 0x008d000f);
+
+			EXPECT_EQ((unsigned)out[1][0], 0x00080002);
+			EXPECT_EQ((unsigned)out[1][1], 0xe8c0000f);
+		}
+	}
+
+	delete routine;
+}
+
+TEST(SubzeroReactorTest, MulAdd) {
+	Routine *routine = nullptr;
+
+	{
+		Function<Int(Pointer<Byte>)> function;
+		{
+			Pointer<Byte> out = function.Arg<0>();
+
+			*Pointer<Int2>(out + 8 * 0) =
+				MulAdd(Short4(0x1aa, 0x2dd, 0x3ee, 0xF422),
+				       Short4(0x1bb, 0x2cc, 0x3ff, 0xF411));
+
+			// (U)Short8 variant is mentioned but unimplemented
+			Return(0);
+		}
+
+		routine = function(L"one");
+
+		if(routine)
+		{
+			int out[1][2];
+
+			memset(&out, 0, sizeof(out));
+
+			int(*callable)(void*) = (int(*)(void*))routine->getEntry();
+			callable(&out);
+
+			EXPECT_EQ((unsigned)out[0][0], 0x000ae34a);
+			EXPECT_EQ((unsigned)out[0][1], 0x009d5254);
 		}
 	}
 

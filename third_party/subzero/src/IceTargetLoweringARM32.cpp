@@ -5331,23 +5331,75 @@ void TargetARM32::lowerIntrinsicCall(const InstIntrinsicCall *Instr) {
     return;
   }
   case Intrinsics::LoadSubVector: {
-    UnimplementedLoweringError(this, Instr);
+    assert(llvm::isa<ConstantInteger32>(Instr->getArg(1)) &&
+           "LoadSubVector second argument must be a constant");
+    Variable *Dest = Instr->getDest();
+    Type Ty = Dest->getType();
+    auto *SubVectorSize = llvm::cast<ConstantInteger32>(Instr->getArg(1));
+    Operand *Addr = Instr->getArg(0);
+    OperandARM32Mem *Src = formMemoryOperand(Addr, Ty);
+    doMockBoundsCheck(Src);
+
+    if (Dest->isRematerializable()) {
+      Context.insert<InstFakeDef>(Dest);
+      return;
+    }
+
+    auto *T = makeReg(Ty);
+    switch (SubVectorSize->getValue()) {
+    case 4:
+      _vldr1d(T, Src);
+      break;
+    case 8:
+      _vldr1q(T, Src);
+      break;
+    default:
+      Func->setError("Unexpected size for LoadSubVector");
+      return;
+    }
+    _mov(Dest, T);
     return;
   }
   case Intrinsics::StoreSubVector: {
-    UnimplementedLoweringError(this, Instr);
+    assert(llvm::isa<ConstantInteger32>(Instr->getArg(2)) &&
+           "StoreSubVector third argument must be a constant");
+    auto *SubVectorSize = llvm::cast<ConstantInteger32>(Instr->getArg(2));
+    Variable *Value = legalizeToReg(Instr->getArg(0));
+    Operand *Addr = Instr->getArg(1);
+    OperandARM32Mem *NewAddr = formMemoryOperand(Addr, Value->getType());
+    doMockBoundsCheck(NewAddr);
+
+    Value = legalizeToReg(Value);
+
+    switch (SubVectorSize->getValue()) {
+    case 4:
+      _vstr1d(Value, NewAddr);
+      break;
+    case 8:
+      _vstr1q(Value, NewAddr);
+      break;
+    default:
+      Func->setError("Unexpected size for StoreSubVector");
+      return;
+    }
     return;
   }
   case Intrinsics::MultiplyAddPairs: {
-    UnimplementedLoweringError(this, Instr);
+    Variable *Src0 = legalizeToReg(Instr->getArg(0));
+    Variable *Src1 = legalizeToReg(Instr->getArg(1));
+    Variable *T = makeReg(DestTy);
+    _vmlap(T, Src0, Src1);
+    _mov(Dest, T);
     return;
   }
-  case Intrinsics::MultiplyHighSigned: {
-    UnimplementedLoweringError(this, Instr);
-    return;
-  }
+  case Intrinsics::MultiplyHighSigned:
   case Intrinsics::MultiplyHighUnsigned: {
-    UnimplementedLoweringError(this, Instr);
+    bool Unsigned = (ID == Intrinsics::MultiplyHighUnsigned);
+    Variable *Src0 = legalizeToReg(Instr->getArg(0));
+    Variable *Src1 = legalizeToReg(Instr->getArg(1));
+    Variable *T = makeReg(DestTy);
+    _vmulh(T, Src0, Src1, Unsigned);
+    _mov(Dest, T);
     return;
   }
   case Intrinsics::Nearbyint: {
@@ -5372,12 +5424,15 @@ void TargetARM32::lowerIntrinsicCall(const InstIntrinsicCall *Instr) {
     _mov(Dest, T);
     return;
   }
-  case Intrinsics::VectorPackSigned: {
-    UnimplementedLoweringError(this, Instr);
-    return;
-  }
+  case Intrinsics::VectorPackSigned:
   case Intrinsics::VectorPackUnsigned: {
-    UnimplementedLoweringError(this, Instr);
+    bool Unsigned = (ID == Intrinsics::VectorPackUnsigned);
+    bool Saturating = true;
+    Variable *Src0 = legalizeToReg(Instr->getArg(0));
+    Variable *Src1 = legalizeToReg(Instr->getArg(1));
+    Variable *T = makeReg(DestTy);
+    _vqmovn2(T, Src0, Src1, Unsigned, Saturating);
+    _mov(Dest, T);
     return;
   }
   default: // UnknownIntrinsic
@@ -5920,8 +5975,121 @@ void TargetARM32::lowerShuffleVector(const InstShuffleVector *Instr) {
   const Type DestTy = Dest->getType();
 
   auto *T = makeReg(DestTy);
+  auto *Src0 = Instr->getSrc(0);
+  auto *Src1 = Instr->getSrc(1);
+  const SizeT NumElements = typeNumElements(DestTy);
+  const Type ElementType = typeElementType(DestTy);
+
+  bool Replicate = true;
+  for (SizeT I = 1; Replicate && I < Instr->getNumIndexes(); ++I) {
+    if (Instr->getIndexValue(I) != Instr->getIndexValue(0)) {
+      Replicate = false;
+    }
+  }
+
+  if (Replicate) {
+    Variable *Src0Var = legalizeToReg(Src0);
+    _vdup(T, Src0Var, Instr->getIndexValue(0));
+    _mov(Dest, T);
+    return;
+  }
 
   switch (DestTy) {
+  case IceType_v8i1:
+  case IceType_v8i16: {
+    static constexpr SizeT ExpectedNumElements = 8;
+    assert(ExpectedNumElements == Instr->getNumIndexes());
+    (void)ExpectedNumElements;
+
+    if (Instr->indexesAre(0, 0, 1, 1, 2, 2, 3, 3)) {
+      Variable *Src0R = legalizeToReg(Src0);
+      _vzip(T, Src0R, Src0R);
+      _mov(Dest, T);
+      return;
+    }
+
+    if (Instr->indexesAre(0, 8, 1, 9, 2, 10, 3, 11)) {
+      Variable *Src0R = legalizeToReg(Src0);
+      Variable *Src1R = legalizeToReg(Src1);
+      _vzip(T, Src0R, Src1R);
+      _mov(Dest, T);
+      return;
+    }
+
+    if (Instr->indexesAre(0, 2, 4, 6, 0, 2, 4, 6)) {
+      Variable *Src0R = legalizeToReg(Src0);
+      _vqmovn2(T, Src0R, Src0R, false, false);
+      _mov(Dest, T);
+      return;
+    }
+  } break;
+  case IceType_v16i1:
+  case IceType_v16i8: {
+    static constexpr SizeT ExpectedNumElements = 16;
+    assert(ExpectedNumElements == Instr->getNumIndexes());
+    (void)ExpectedNumElements;
+
+    if (Instr->indexesAre(0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7)) {
+      Variable *Src0R = legalizeToReg(Src0);
+      _vzip(T, Src0R, Src0R);
+      _mov(Dest, T);
+      return;
+    }
+
+    if (Instr->indexesAre(0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7,
+                          23)) {
+      Variable *Src0R = legalizeToReg(Src0);
+      Variable *Src1R = legalizeToReg(Src1);
+      _vzip(T, Src0R, Src1R);
+      _mov(Dest, T);
+      return;
+    }
+  } break;
+  case IceType_v4i1:
+  case IceType_v4i32:
+  case IceType_v4f32: {
+    static constexpr SizeT ExpectedNumElements = 4;
+    assert(ExpectedNumElements == Instr->getNumIndexes());
+    (void)ExpectedNumElements;
+
+    if (Instr->indexesAre(0, 0, 1, 1)) {
+      Variable *Src0R = legalizeToReg(Src0);
+      _vzip(T, Src0R, Src0R);
+      _mov(Dest, T);
+      return;
+    }
+
+    if (Instr->indexesAre(0, 4, 1, 5)) {
+      Variable *Src0R = legalizeToReg(Src0);
+      Variable *Src1R = legalizeToReg(Src1);
+      _vzip(T, Src0R, Src1R);
+      _mov(Dest, T);
+      return;
+    }
+
+    if (Instr->indexesAre(0, 1, 4, 5)) {
+      Variable *Src0R = legalizeToReg(Src0);
+      Variable *Src1R = legalizeToReg(Src1);
+      _vmovlh(T, Src0R, Src1R);
+      _mov(Dest, T);
+      return;
+    }
+
+    if (Instr->indexesAre(2, 3, 2, 3)) {
+      Variable *Src0R = legalizeToReg(Src0);
+      _vmovhl(T, Src0R, Src0R);
+      _mov(Dest, T);
+      return;
+    }
+
+    if (Instr->indexesAre(2, 3, 6, 7)) {
+      Variable *Src0R = legalizeToReg(Src0);
+      Variable *Src1R = legalizeToReg(Src1);
+      _vmovhl(T, Src1R, Src0R);
+      _mov(Dest, T);
+      return;
+    }
+  } break;
   default:
     break;
     // TODO(jpp): figure out how to properly lower this without scalarization.
@@ -5929,10 +6097,6 @@ void TargetARM32::lowerShuffleVector(const InstShuffleVector *Instr) {
 
   // Unoptimized shuffle. Perform a series of inserts and extracts.
   Context.insert<InstFakeDef>(T);
-  auto *Src0 = Instr->getSrc(0);
-  auto *Src1 = Instr->getSrc(1);
-  const SizeT NumElements = typeNumElements(DestTy);
-  const Type ElementType = typeElementType(DestTy);
   for (SizeT I = 0; I < Instr->getNumIndexes(); ++I) {
     auto *Index = Instr->getIndex(I);
     const SizeT Elem = Index->getValue();
