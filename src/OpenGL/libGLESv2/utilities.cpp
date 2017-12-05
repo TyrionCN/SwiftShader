@@ -491,6 +491,7 @@ namespace es2
 		case GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2:
 		case GL_COMPRESSED_RGBA8_ETC2_EAC:
 		case GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC:
+			return (clientVersion >= 3) ? (expectCompressedFormats ? GL_NONE : GL_INVALID_OPERATION) : GL_INVALID_ENUM;
 		case GL_COMPRESSED_RGBA_ASTC_4x4_KHR:
 		case GL_COMPRESSED_RGBA_ASTC_5x4_KHR:
 		case GL_COMPRESSED_RGBA_ASTC_5x5_KHR:
@@ -519,7 +520,11 @@ namespace es2
 		case GL_COMPRESSED_SRGB8_ALPHA8_ASTC_10x10_KHR:
 		case GL_COMPRESSED_SRGB8_ALPHA8_ASTC_12x10_KHR:
 		case GL_COMPRESSED_SRGB8_ALPHA8_ASTC_12x12_KHR:
-			return (clientVersion >= 3) ? (expectCompressedFormats ? GL_NONE : GL_INVALID_OPERATION) : GL_INVALID_ENUM;
+#if(ASTC_SUPPORT)
+			return ((clientVersion >= 3) && ()) ? (expectCompressedFormats ? GL_NONE : GL_INVALID_OPERATION) : GL_INVALID_ENUM;
+#else
+			return GL_INVALID_ENUM;
+#endif
 		default:
 			return expectCompressedFormats ? GL_INVALID_ENUM : GL_NONE; // Not compressed format
 		}
@@ -1040,6 +1045,38 @@ namespace es2
 		return true;
 	}
 
+	GLsizei GetTypeSize(GLenum type)
+	{
+		switch(type)
+		{
+		case GL_BYTE:
+		case GL_UNSIGNED_BYTE:
+			return 1;
+		case GL_UNSIGNED_SHORT_4_4_4_4:
+		case GL_UNSIGNED_SHORT_5_5_5_1:
+		case GL_UNSIGNED_SHORT_5_6_5:
+		case GL_HALF_FLOAT_OES:
+		case GL_UNSIGNED_SHORT:
+		case GL_SHORT:
+		case GL_HALF_FLOAT:
+			return 2;
+		case GL_FLOAT:
+		case GL_UNSIGNED_INT_24_8:
+		case GL_UNSIGNED_INT:
+		case GL_INT:
+		case GL_UNSIGNED_INT_2_10_10_10_REV:
+		case GL_UNSIGNED_INT_10F_11F_11F_REV:
+		case GL_UNSIGNED_INT_5_9_9_9_REV:
+		case GL_FLOAT_32_UNSIGNED_INT_24_8_REV:
+			return 4;
+		default:
+			UNREACHABLE(type);
+			break;
+		}
+
+		return 1;
+	}
+
 	bool IsColorRenderable(GLenum internalformat, GLint clientVersion, bool isTexture)
 	{
 		switch(internalformat)
@@ -1089,6 +1126,13 @@ namespace es2
 		case GL_RGBA32UI:
 		case GL_R11F_G11F_B10F:
 			return clientVersion >= 3;
+		case GL_R8_SNORM:
+		case GL_RG8_SNORM:
+		case GL_RGB8_SNORM:
+		case GL_RGBA8_SNORM:
+		case GL_ALPHA8_EXT:
+		case GL_LUMINANCE8_EXT:
+		case GL_LUMINANCE8_ALPHA8_EXT:
 		case GL_DEPTH_COMPONENT24:
 		case GL_DEPTH_COMPONENT32_OES:
 		case GL_DEPTH_COMPONENT32F:
@@ -1101,6 +1145,24 @@ namespace es2
 		}
 
 		return false;
+	}
+
+	bool IsMipmappable(GLenum internalformat, sw::Format internalFormat, GLint clientVersion)
+	{
+		if(sw::Surface::isNonNormalizedInteger(internalFormat))
+		{
+			return false;
+		}
+
+		switch(internalformat)
+		{
+			case GL_ALPHA8_EXT:
+			case GL_LUMINANCE8_EXT:
+			case GL_LUMINANCE8_ALPHA8_EXT:
+				return true;
+			default:
+				return IsColorRenderable(internalformat, clientVersion, true);
+		}
 	}
 
 	bool IsDepthRenderable(GLenum internalformat, GLint clientVersion)
@@ -1558,6 +1620,7 @@ namespace es2sw
 		case GL_RGB565:               return sw::FORMAT_R5G6B5;
 		case GL_RGB8_OES:             return sw::FORMAT_X8B8G8R8;
 		case GL_DEPTH_COMPONENT16:
+		case GL_DEPTH_COMPONENT24:
 		case GL_STENCIL_INDEX8:
 		case GL_DEPTH24_STENCIL8_OES: return sw::FORMAT_D24S8;
 		case GL_DEPTH_COMPONENT32_OES:return sw::FORMAT_D32;

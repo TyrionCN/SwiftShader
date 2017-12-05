@@ -61,6 +61,7 @@ namespace sw
 		sRGB = false;
 		gather = false;
 		highPrecisionFiltering = false;
+		border = 0;
 
 		swizzleR = SWIZZLE_RED;
 		swizzleG = SWIZZLE_GREEN;
@@ -117,7 +118,8 @@ namespace sw
 		{
 			Mipmap &mipmap = texture.mipmap[level];
 
-			mipmap.buffer[face] = surface->lockInternal(0, 0, 0, LOCK_UNLOCKED, PRIVATE);
+			border = surface->getBorder();
+			mipmap.buffer[face] = surface->lockInternal(-border, -border, 0, LOCK_UNLOCKED, PRIVATE);
 
 			if(face == 0)
 			{
@@ -454,9 +456,9 @@ namespace sw
 
 	AddressingMode Sampler::getAddressingModeU() const
 	{
-		if(hasCubeTexture())
+		if(textureType == TEXTURE_CUBE)
 		{
-			return ADDRESSING_CLAMP;
+			return border ? ADDRESSING_SEAMLESS : ADDRESSING_CLAMP;
 		}
 
 		return addressingModeU;
@@ -464,9 +466,9 @@ namespace sw
 
 	AddressingMode Sampler::getAddressingModeV() const
 	{
-		if(hasCubeTexture())
+		if(textureType == TEXTURE_CUBE)
 		{
-			return ADDRESSING_CLAMP;
+			return border ? ADDRESSING_SEAMLESS : ADDRESSING_CLAMP;
 		}
 
 		return addressingModeV;
@@ -474,12 +476,9 @@ namespace sw
 
 	AddressingMode Sampler::getAddressingModeW() const
 	{
-		if(hasCubeTexture())
-		{
-			return ADDRESSING_CLAMP;
-		}
-
-		if(textureType == TEXTURE_2D_ARRAY || textureType == TEXTURE_2D)
+		if(textureType == TEXTURE_2D_ARRAY ||
+		   textureType == TEXTURE_2D ||
+		   textureType == TEXTURE_CUBE)
 		{
 			return ADDRESSING_LAYER;
 		}

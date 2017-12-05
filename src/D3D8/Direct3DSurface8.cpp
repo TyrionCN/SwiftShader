@@ -58,7 +58,8 @@ namespace D3D8
 		return 1;
 	}
 
-	Direct3DSurface8::Direct3DSurface8(Direct3DDevice8 *device, Unknown *container, int width, int height, D3DFORMAT format, D3DPOOL pool, D3DMULTISAMPLE_TYPE multiSample, bool lockable, unsigned long usage) : Surface(getParentResource(container), width, height, sampleCount(multiSample), translateFormat(format), lockable, (usage & D3DUSAGE_RENDERTARGET) == D3DUSAGE_RENDERTARGET || (usage & D3DUSAGE_DEPTHSTENCIL) == D3DUSAGE_DEPTHSTENCIL), device(device), container(container), width(width), height(height), format(format), pool(pool), multiSample(multiSample), lockable(lockable), usage(usage)
+	Direct3DSurface8::Direct3DSurface8(Direct3DDevice8 *device, Unknown *container, int width, int height, D3DFORMAT format, D3DPOOL pool, D3DMULTISAMPLE_TYPE multiSample, bool lockable, unsigned long usage)
+		: Surface(getParentResource(container), width, height, sampleCount(multiSample), 0, translateFormat(format), lockable, (usage & D3DUSAGE_RENDERTARGET) == D3DUSAGE_RENDERTARGET || (usage & D3DUSAGE_DEPTHSTENCIL) == D3DUSAGE_DEPTHSTENCIL), device(device), container(container), width(width), height(height), format(format), pool(pool), multiSample(multiSample), lockable(lockable), usage(usage)
 	{
 		parentTexture = dynamic_cast<Direct3DBaseTexture8*>(container);
 
@@ -227,7 +228,7 @@ namespace D3D8
 		desc->Type = D3DRTYPE_SURFACE;
 		desc->Height = height;
 		desc->Width = width;
-		desc->Size = size(getWidth(), getHeight(), getDepth(), getExternalFormat());
+		desc->Size = size(getWidth(), getHeight(), getDepth(), 0, getExternalFormat());
 		desc->MultiSampleType = multiSample;
 		desc->Usage = usage;
 
@@ -285,6 +286,6 @@ namespace D3D8
 
 	unsigned int Direct3DSurface8::memoryUsage(int width, int height, D3DFORMAT format)
 	{
-		return Surface::size(width, height, 1, translateFormat(format));
+		return Surface::size(width, height, 1, 0, translateFormat(format));
 	}
 }

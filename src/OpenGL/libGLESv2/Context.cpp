@@ -1357,7 +1357,25 @@ void Context::beginQuery(GLenum target, GLuint query)
 	{
 		if(mState.activeQuery[i])
 		{
-			return error(GL_INVALID_OPERATION);
+			switch(mState.activeQuery[i]->getType())
+			{
+			case GL_ANY_SAMPLES_PASSED_EXT:
+			case GL_ANY_SAMPLES_PASSED_CONSERVATIVE_EXT:
+				if((target == GL_ANY_SAMPLES_PASSED_EXT) ||
+				   (target == GL_ANY_SAMPLES_PASSED_CONSERVATIVE_EXT))
+				{
+					return error(GL_INVALID_OPERATION);
+				}
+				break;
+			case GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN:
+				if(target == GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN)
+				{
+					return error(GL_INVALID_OPERATION);
+				}
+				break;
+			default:
+				break;
+			}
 		}
 	}
 
@@ -1511,6 +1529,11 @@ TransformFeedback *Context::getTransformFeedback(GLuint transformFeedback) const
 	return mTransformFeedbackNameSpace.find(transformFeedback);
 }
 
+bool Context::isTransformFeedback(GLuint array) const
+{
+	return mTransformFeedbackNameSpace.isReserved(array);
+}
+
 Sampler *Context::getSampler(GLuint sampler) const
 {
 	return mResourceManager->getSampler(sampler);
@@ -1556,11 +1579,32 @@ Buffer *Context::getGenericUniformBuffer() const
 	return mState.genericUniformBuffer;
 }
 
-const GLvoid* Context::getPixels(const GLvoid* data) const
+GLsizei Context::getRequiredBufferSize(GLsizei width, GLsizei height, GLsizei depth, GLint internalformat, GLenum type) const
 {
-	es2::Buffer* unpackBuffer = getPixelUnpackBuffer();
-	const unsigned char* unpackBufferData = unpackBuffer ? static_cast<const unsigned char*>(unpackBuffer->data()) : nullptr;
-	return unpackBufferData ? unpackBufferData + (ptrdiff_t)(data) : data;
+	GLenum format = GetSizedInternalFormat(internalformat, type);
+	GLsizei inputWidth = (mState.unpackInfo.rowLength == 0) ? width : mState.unpackInfo.rowLength;
+	GLsizei inputPitch = egl::ComputePitch(inputWidth, format, type, mState.unpackInfo.alignment);
+	GLsizei inputHeight = (mState.unpackInfo.imageHeight == 0) ? height : mState.unpackInfo.imageHeight;
+	return inputPitch * inputHeight * depth;
+}
+
+GLenum Context::getPixels(const GLvoid **data, GLenum type, GLsizei imageSize) const
+{
+	if(mState.pixelUnpackBuffer)
+	{
+		if(mState.pixelUnpackBuffer->name)
+		{
+			if(mState.pixelUnpackBuffer->isMapped() ||
+			   (mState.pixelUnpackBuffer->size() < static_cast<size_t>(imageSize)) ||
+			   (static_cast<GLsizei>((ptrdiff_t)(*data)) % GetTypeSize(type)))
+			{
+				return GL_INVALID_OPERATION;
+			}
+		}
+
+		*data = static_cast<const unsigned char*>(mState.pixelUnpackBuffer->data()) + (ptrdiff_t)(*data);
+	}
+	return GL_NONE;
 }
 
 bool Context::getBuffer(GLenum target, es2::Buffer **buffer) const
@@ -2379,6 +2423,20 @@ template bool Context::getUniformBufferiv<GLint64>(GLuint index, GLenum pname, G
 
 template<typename T> bool Context::getUniformBufferiv(GLuint index, GLenum pname, T *param) const
 {
+	switch(pname)
+	{
+	case GL_UNIFORM_BUFFER_BINDING:
+	case GL_UNIFORM_BUFFER_SIZE:
+	case GL_UNIFORM_BUFFER_START:
+		if(index >= MAX_UNIFORM_BUFFER_BINDINGS)
+		{
+			return error(GL_INVALID_VALUE, true);
+		}
+		break;
+	default:
+		break;
+	}
+
 	const BufferBinding& uniformBuffer = mState.uniformBuffers[index];
 
 	switch(pname)
@@ -3189,11 +3247,13 @@ void Context::applyTexture(sw::SamplerType type, int index, Texture *baseTexture
 		}
 		else if(baseTexture->getTarget() == GL_TEXTURE_CUBE_MAP)
 		{
-			for(int face = 0; face < 6; face++)
-			{
-				TextureCubeMap *cubeTexture = static_cast<TextureCubeMap*>(baseTexture);
+			TextureCubeMap *cubeTexture = static_cast<TextureCubeMap*>(baseTexture);
 
-				for(int mipmapLevel = 0; mipmapLevel < sw::MIPMAP_LEVELS; mipmapLevel++)
+			for(int mipmapLevel = 0; mipmapLevel < sw::MIPMAP_LEVELS; mipmapLevel++)
+			{
+				cubeTexture->updateBorders(mipmapLevel);
+
+				for(int face = 0; face < 6; face++)
 				{
 					int surfaceLevel = mipmapLevel;
 
@@ -3421,21 +3481,13 @@ void Context::clearStencilBuffer(const GLint value)
 
 void Context::drawArrays(GLenum mode, GLint first, GLsizei count, GLsizei instanceCount)
 {
-	if(!mState.currentProgram)
-	{
-		return error(GL_INVALID_OPERATION);
-	}
-
 	sw::DrawType primitiveType;
 	int primitiveCount;
 	int verticesPerPrimitive;
 
 	if(!es2sw::ConvertPrimitiveType(mode, count, GL_NONE, primitiveType, primitiveCount, verticesPerPrimitive))
-		return error(GL_INVALID_ENUM);
-
-	if(primitiveCount <= 0)
 	{
-		return;
+		return error(GL_INVALID_ENUM);
 	}
 
 	if(!applyRenderTarget())
@@ -3455,12 +3507,22 @@ void Context::drawArrays(GLenum mode, GLint first, GLsizei count, GLsizei instan
 			return error(err);
 		}
 
+		if(!mState.currentProgram)
+		{
+			return;
+		}
+
 		applyShaders();
 		applyTextures();
 
 		if(!getCurrentProgram()->validateSamplers(false))
 		{
 			return error(GL_INVALID_OPERATION);
+		}
+
+		if(primitiveCount <= 0)
+		{
+			return;
 		}
 
 		TransformFeedback* transformFeedback = getTransformFeedback();
@@ -3477,11 +3539,6 @@ void Context::drawArrays(GLenum mode, GLint first, GLsizei count, GLsizei instan
 
 void Context::drawElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void *indices, GLsizei instanceCount)
 {
-	if(!mState.currentProgram)
-	{
-		return error(GL_INVALID_OPERATION);
-	}
-
 	if(!indices && !getCurrentVertexArray()->getElementArrayBuffer())
 	{
 		return error(GL_INVALID_OPERATION);
@@ -3510,11 +3567,8 @@ void Context::drawElements(GLenum mode, GLuint start, GLuint end, GLsizei count,
 	int verticesPerPrimitive;
 
 	if(!es2sw::ConvertPrimitiveType(internalMode, count, type, primitiveType, primitiveCount, verticesPerPrimitive))
-		return error(GL_INVALID_ENUM);
-
-	if(primitiveCount <= 0)
 	{
-		return;
+		return error(GL_INVALID_ENUM);
 	}
 
 	if(!applyRenderTarget())
@@ -3542,12 +3596,22 @@ void Context::drawElements(GLenum mode, GLuint start, GLuint end, GLsizei count,
 			return error(err);
 		}
 
+		if(!mState.currentProgram)
+		{
+			return;
+		}
+
 		applyShaders();
 		applyTextures();
 
 		if(!getCurrentProgram()->validateSamplers(false))
 		{
 			return error(GL_INVALID_OPERATION);
+		}
+
+		if(primitiveCount <= 0)
+		{
+			return;
 		}
 
 		TransformFeedback* transformFeedback = getTransformFeedback();
@@ -4067,6 +4131,52 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
 			return error(GL_INVALID_OPERATION);
 		}
 
+		// The GL ES 3.0.2 spec (pg 193) states that:
+		// 1) If the read buffer is fixed point format, the draw buffer must be as well
+		// 2) If the read buffer is an unsigned integer format, the draw buffer must be
+		// as well
+		// 3) If the read buffer is a signed integer format, the draw buffer must be as
+		// well
+		es2::Renderbuffer *readRenderbuffer = readFramebuffer->getReadColorbuffer();
+		es2::Renderbuffer *drawRenderbuffer = drawFramebuffer->getColorbuffer(0);
+		sw::Format readFormat = readRenderbuffer->getInternalFormat();
+		sw::Format drawFormat = drawRenderbuffer->getInternalFormat();
+		GLenum readComponentType = sw2es::GetComponentType(readFormat, GL_COLOR_ATTACHMENT0);
+		GLenum drawComponentType = sw2es::GetComponentType(drawFormat, GL_COLOR_ATTACHMENT0);
+		bool readFixedPoint = ((readComponentType == GL_UNSIGNED_NORMALIZED) ||
+		                       (readComponentType == GL_SIGNED_NORMALIZED));
+		bool drawFixedPoint = ((drawComponentType == GL_UNSIGNED_NORMALIZED) ||
+		                       (drawComponentType == GL_SIGNED_NORMALIZED));
+		bool readFixedOrFloat = (readFixedPoint || (readComponentType == GL_FLOAT));
+		bool drawFixedOrFloat = (drawFixedPoint || (drawComponentType == GL_FLOAT));
+
+		if(readFixedOrFloat != drawFixedOrFloat)
+		{
+			return error(GL_INVALID_OPERATION);
+		}
+
+		if((readComponentType == GL_UNSIGNED_INT) && (drawComponentType != GL_UNSIGNED_INT))
+		{
+			return error(GL_INVALID_OPERATION);
+		}
+
+		if((readComponentType == GL_INT) && (drawComponentType != GL_INT))
+		{
+			return error(GL_INVALID_OPERATION);
+		}
+
+		// Cannot filter integer data
+		if(((readComponentType == GL_UNSIGNED_INT) || (readComponentType == GL_INT)) && filter)
+		{
+			return error(GL_INVALID_OPERATION);
+		}
+
+		if((readRenderbuffer->getSamples() > 0) &&
+		   (readRenderbuffer->getFormat() != drawRenderbuffer->getFormat()))
+		{
+			return error(GL_INVALID_OPERATION);
+		}
+
 		blitRenderTarget = true;
 	}
 
@@ -4090,6 +4200,11 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
 				blitDepth = true;
 				readDSBuffer = readFramebuffer->getDepthbuffer();
 				drawDSBuffer = drawFramebuffer->getDepthbuffer();
+
+				if(readDSBuffer->getInternalFormat() != drawDSBuffer->getInternalFormat())
+				{
+					return error(GL_INVALID_OPERATION);
+				}
 			}
 		}
 
@@ -4108,6 +4223,11 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
 				blitStencil = true;
 				readDSBuffer = readFramebuffer->getStencilbuffer();
 				drawDSBuffer = drawFramebuffer->getStencilbuffer();
+
+				if(readDSBuffer->getInternalFormat() != drawDSBuffer->getInternalFormat())
+				{
+					return error(GL_INVALID_OPERATION);
+				}
 			}
 		}
 
@@ -4358,6 +4478,10 @@ const GLubyte *Context::getExtensions(GLuint index, GLuint *numExt) const
 		"GL_EXT_texture_filter_anisotropic",
 		"GL_EXT_texture_format_BGRA8888",
 		"GL_EXT_texture_rg",
+#if (ASTC_SUPPORT)
+		"GL_KHR_texture_compression_astc_hdr",
+		"GL_KHR_texture_compression_astc_ldr",
+#endif
 		"GL_ANGLE_framebuffer_blit",
 		"GL_ANGLE_framebuffer_multisample",
 		"GL_ANGLE_instanced_arrays",

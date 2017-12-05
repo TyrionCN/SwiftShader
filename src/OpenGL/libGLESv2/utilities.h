@@ -54,8 +54,10 @@ namespace es2
 	int CubeFaceIndex(GLenum cubeTarget);
 	bool IsTextureTarget(GLenum target);
 	bool ValidateTextureFormatType(GLenum format, GLenum type, GLint internalformat, GLint clientVersion);
+	GLsizei GetTypeSize(GLenum type);
 
 	bool IsColorRenderable(GLenum internalformat, GLint clientVersion, bool isTexture);
+	bool IsMipmappable(GLenum format, sw::Format internalFormat, GLint clientVersion);
 	bool IsDepthRenderable(GLenum internalformat, GLint clientVersion);
 	bool IsStencilRenderable(GLenum internalformat, GLint clientVersion);
 

@@ -126,6 +126,7 @@ const GLenum compressedTextureFormats[] =
 	GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2,
 	GL_COMPRESSED_RGBA8_ETC2_EAC,
 	GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC,
+#if (ASTC_SUPPORT)
 	GL_COMPRESSED_RGBA_ASTC_4x4_KHR,
 	GL_COMPRESSED_RGBA_ASTC_5x4_KHR,
 	GL_COMPRESSED_RGBA_ASTC_5x5_KHR,
@@ -154,7 +155,8 @@ const GLenum compressedTextureFormats[] =
 	GL_COMPRESSED_SRGB8_ALPHA8_ASTC_10x10_KHR,
 	GL_COMPRESSED_SRGB8_ALPHA8_ASTC_12x10_KHR,
 	GL_COMPRESSED_SRGB8_ALPHA8_ASTC_12x12_KHR,
-#endif
+#endif // ASTC_SUPPORT
+#endif // GL_ES_VERSION_3_0
 };
 
 const GLenum GL_TEXTURE_FILTERING_HINT_CHROMIUM = 0x8AF0;
@@ -632,6 +634,7 @@ public:
 	VertexArray *getCurrentVertexArray() const;
 	bool isVertexArray(GLuint array) const;
 	TransformFeedback *getTransformFeedback(GLuint transformFeedback) const;
+	bool isTransformFeedback(GLuint transformFeedback) const;
 	TransformFeedback *getTransformFeedback() const;
 	Sampler *getSampler(GLuint sampler) const;
 	bool isSampler(GLuint sampler) const;
@@ -643,7 +646,8 @@ public:
 	Buffer *getPixelPackBuffer() const;
 	Buffer *getPixelUnpackBuffer() const;
 	Buffer *getGenericUniformBuffer() const;
-	const GLvoid* getPixels(const GLvoid* data) const;
+	GLsizei getRequiredBufferSize(GLsizei width, GLsizei height, GLsizei depth, GLint internalformat, GLenum type) const;
+	GLenum getPixels(const GLvoid **data, GLenum type, GLsizei imageSize) const;
 	bool getBuffer(GLenum target, es2::Buffer **buffer) const;
 	Program *getCurrentProgram() const;
 	Texture2D *getTexture2D() const;

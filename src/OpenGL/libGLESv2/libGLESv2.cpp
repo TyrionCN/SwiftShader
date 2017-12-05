@@ -26,6 +26,7 @@
 #include "Texture.h"
 #include "Query.h"
 #include "TransformFeedback.h"
+#include "VertexArray.h"
 #include "common/debug.h"
 #include "Common/Version.h"
 
@@ -649,6 +650,12 @@ void BufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const GLvoid
 			return error(GL_INVALID_OPERATION);
 		}
 
+		if(buffer->isMapped())
+		{
+			// It is an invalid operation to update an already mapped buffer
+			return error(GL_INVALID_OPERATION);
+		}
+
 		if((size_t)size + offset > buffer->size())
 		{
 			return error(GL_INVALID_VALUE);
@@ -869,6 +876,12 @@ void CompressedTexImage2D(GLenum target, GLint level, GLenum internalformat, GLs
 				return error(GL_INVALID_OPERATION);
 			}
 
+			GLenum validationError = context->getPixels(&data, texture->getType(target, level), imageSize);
+			if(validationError != GL_NONE)
+			{
+				return error(validationError);
+			}
+
 			texture->setCompressedImage(level, internalformat, width, height, imageSize, data);
 		}
 		else
@@ -888,7 +901,16 @@ void CompressedTexImage2D(GLenum target, GLint level, GLenum internalformat, GLs
 			case GL_TEXTURE_CUBE_MAP_NEGATIVE_Y:
 			case GL_TEXTURE_CUBE_MAP_POSITIVE_Z:
 			case GL_TEXTURE_CUBE_MAP_NEGATIVE_Z:
-				texture->setCompressedImage(target, level, internalformat, width, height, imageSize, data);
+				{
+
+					GLenum validationError = context->getPixels(&data, texture->getType(target, level), imageSize);
+					if(validationError != GL_NONE)
+					{
+						return error(validationError);
+					}
+
+					texture->setCompressedImage(target, level, internalformat, width, height, imageSize, data);
+				}
 				break;
 			default: UNREACHABLE(target);
 			}
@@ -925,9 +947,9 @@ void CompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yo
 		return error(validationError);
 	}
 
-	if(width == 0 || height == 0 || !data)
+	if(imageSize != egl::ComputeCompressedSize(width, height, format))
 	{
-		return;
+		return error(GL_INVALID_VALUE);
 	}
 
 	es2::Context *context = es2::getContext();
@@ -955,7 +977,12 @@ void CompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yo
 
 			if(validationError == GL_NONE)
 			{
-				texture->subImageCompressed(level, xoffset, yoffset, width, height, sizedInternalFormat, imageSize, context->getPixels(data));
+				validationError = context->getPixels(&data, texture->getType(target, level), imageSize);
+			}
+
+			if(validationError == GL_NONE)
+			{
+				texture->subImageCompressed(level, xoffset, yoffset, width, height, sizedInternalFormat, imageSize, data);
 			}
 			else
 			{
@@ -970,7 +997,12 @@ void CompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yo
 
 			if(validationError == GL_NONE)
 			{
-				texture->subImageCompressed(target, level, xoffset, yoffset, width, height, sizedInternalFormat, imageSize, context->getPixels(data));
+				validationError = context->getPixels(&data, texture->getType(target, level), imageSize);
+			}
+
+			if(validationError == GL_NONE)
+			{
+				texture->subImageCompressed(target, level, xoffset, yoffset, width, height, sizedInternalFormat, imageSize, data);
 			}
 			else
 			{
@@ -2270,6 +2302,11 @@ void GenerateMipmap(GLenum target)
 		}
 
 		if(texture->isCompressed(target, 0) || texture->isDepth(target, 0))
+		{
+			return error(GL_INVALID_OPERATION);
+		}
+
+		if(!IsMipmappable(texture->getFormat(target, 0), texture->getInternalFormat(target, 0), clientVersion))
 		{
 			return error(GL_INVALID_OPERATION);
 		}
@@ -4494,6 +4531,15 @@ void LinkProgram(GLuint program)
 			}
 		}
 
+		if(programObject == context->getCurrentProgram())
+		{
+			es2::TransformFeedback* transformFeedback = context->getTransformFeedback();
+			if(transformFeedback && transformFeedback->isActive())
+			{
+				return error(GL_INVALID_OPERATION);
+			}
+		}
+
 		programObject->link();
 	}
 }
@@ -4688,22 +4734,23 @@ void RenderbufferStorageMultisample(GLenum target, GLsizei samples, GLenum inter
 		return error(GL_INVALID_ENUM);
 	}
 
-	if(width < 0 || height < 0 || samples < 0)
+	if(width < 0 || height < 0 || samples < 0 ||
+	   width > es2::IMPLEMENTATION_MAX_RENDERBUFFER_SIZE ||
+	   height > es2::IMPLEMENTATION_MAX_RENDERBUFFER_SIZE)
 	{
 		return error(GL_INVALID_VALUE);
+	}
+
+	if(samples > es2::IMPLEMENTATION_MAX_SAMPLES ||
+	   (sw::Surface::isNonNormalizedInteger(es2sw::ConvertRenderbufferFormat(internalformat)) && samples > 0))
+	{
+		return error(GL_INVALID_OPERATION);
 	}
 
 	es2::Context *context = es2::getContext();
 
 	if(context)
 	{
-		if(width > es2::IMPLEMENTATION_MAX_RENDERBUFFER_SIZE ||
-		   height > es2::IMPLEMENTATION_MAX_RENDERBUFFER_SIZE ||
-		   samples > es2::IMPLEMENTATION_MAX_SAMPLES)
-		{
-			return error(GL_INVALID_VALUE);
-		}
-
 		GLuint handle = context->getRenderbufferName();
 		if(handle == 0)
 		{
@@ -5097,6 +5144,12 @@ void TexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width,
 
 		GLenum sizedInternalFormat = GetSizedInternalFormat(format, type);
 
+		validationError = context->getPixels(&data, type, context->getRequiredBufferSize(width, height, 1, sizedInternalFormat, type));
+		if(validationError != GL_NONE)
+		{
+			return error(validationError);
+		}
+
 		if(target == GL_TEXTURE_2D)
 		{
 			es2::Texture2D *texture = context->getTexture2D();
@@ -5106,7 +5159,7 @@ void TexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width,
 				return error(GL_INVALID_OPERATION);
 			}
 
-			texture->setImage(context, level, width, height, sizedInternalFormat, type, context->getUnpackInfo(), context->getPixels(data));
+			texture->setImage(context, level, width, height, sizedInternalFormat, type, context->getUnpackInfo(), data);
 		}
 		else
 		{
@@ -5117,7 +5170,7 @@ void TexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width,
 				return error(GL_INVALID_OPERATION);
 			}
 
-			texture->setImage(context, target, level, width, height, sizedInternalFormat, type, context->getUnpackInfo(), context->getPixels(data));
+			texture->setImage(context, target, level, width, height, sizedInternalFormat, type, context->getUnpackInfo(), data);
 		}
 	}
 }
@@ -5464,15 +5517,21 @@ void TexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLs
 	{
 		GLenum sizedInternalFormat = GetSizedInternalFormat(format, type);
 
+		GLenum validationError = context->getPixels(&data, type, context->getRequiredBufferSize(width, height, 1, sizedInternalFormat, type));
+		if(validationError != GL_NONE)
+		{
+			return error(validationError);
+		}
+
 		if(target == GL_TEXTURE_2D)
 		{
 			es2::Texture2D *texture = context->getTexture2D();
 
-			GLenum validationError = ValidateSubImageParams(false, width, height, xoffset, yoffset, target, level, sizedInternalFormat, texture);
+			validationError = ValidateSubImageParams(false, width, height, xoffset, yoffset, target, level, sizedInternalFormat, texture);
 
 			if(validationError == GL_NONE)
 			{
-				texture->subImage(context, level, xoffset, yoffset, width, height, sizedInternalFormat, type, context->getUnpackInfo(), context->getPixels(data));
+				texture->subImage(context, level, xoffset, yoffset, width, height, sizedInternalFormat, type, context->getUnpackInfo(), data);
 			}
 			else
 			{
@@ -5483,11 +5542,11 @@ void TexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLs
 		{
 			es2::TextureCubeMap *texture = context->getTextureCubeMap();
 
-			GLenum validationError = ValidateSubImageParams(false, width, height, xoffset, yoffset, target, level, sizedInternalFormat, texture);
+			validationError = ValidateSubImageParams(false, width, height, xoffset, yoffset, target, level, sizedInternalFormat, texture);
 
 			if(validationError == GL_NONE)
 			{
-				texture->subImage(context, target, level, xoffset, yoffset, width, height, sizedInternalFormat, type, context->getUnpackInfo(), context->getPixels(data));
+				texture->subImage(context, target, level, xoffset, yoffset, width, height, sizedInternalFormat, type, context->getUnpackInfo(), data);
 			}
 			else
 			{
@@ -5512,11 +5571,6 @@ void Uniform1fv(GLint location, GLsizei count, const GLfloat* v)
 		return error(GL_INVALID_VALUE);
 	}
 
-	if(location == -1)
-	{
-		return;
-	}
-
 	es2::Context *context = es2::getContext();
 
 	if(context)
@@ -5526,6 +5580,11 @@ void Uniform1fv(GLint location, GLsizei count, const GLfloat* v)
 		if(!program)
 		{
 			return error(GL_INVALID_OPERATION);
+		}
+
+		if(location == -1)
+		{
+			return;
 		}
 
 		if(!program->setUniform1fv(location, count, v))
@@ -5549,11 +5608,6 @@ void Uniform1iv(GLint location, GLsizei count, const GLint* v)
 		return error(GL_INVALID_VALUE);
 	}
 
-	if(location == -1)
-	{
-		return;
-	}
-
 	es2::Context *context = es2::getContext();
 
 	if(context)
@@ -5563,6 +5617,11 @@ void Uniform1iv(GLint location, GLsizei count, const GLint* v)
 		if(!program)
 		{
 			return error(GL_INVALID_OPERATION);
+		}
+
+		if(location == -1)
+		{
+			return;
 		}
 
 		if(!program->setUniform1iv(location, count, v))
@@ -5588,11 +5647,6 @@ void Uniform2fv(GLint location, GLsizei count, const GLfloat* v)
 		return error(GL_INVALID_VALUE);
 	}
 
-	if(location == -1)
-	{
-		return;
-	}
-
 	es2::Context *context = es2::getContext();
 
 	if(context)
@@ -5602,6 +5656,11 @@ void Uniform2fv(GLint location, GLsizei count, const GLfloat* v)
 		if(!program)
 		{
 			return error(GL_INVALID_OPERATION);
+		}
+
+		if(location == -1)
+		{
+			return;
 		}
 
 		if(!program->setUniform2fv(location, count, v))
@@ -5627,11 +5686,6 @@ void Uniform2iv(GLint location, GLsizei count, const GLint* v)
 		return error(GL_INVALID_VALUE);
 	}
 
-	if(location == -1)
-	{
-		return;
-	}
-
 	es2::Context *context = es2::getContext();
 
 	if(context)
@@ -5641,6 +5695,11 @@ void Uniform2iv(GLint location, GLsizei count, const GLint* v)
 		if(!program)
 		{
 			return error(GL_INVALID_OPERATION);
+		}
+
+		if(location == -1)
+		{
+			return;
 		}
 
 		if(!program->setUniform2iv(location, count, v))
@@ -5666,11 +5725,6 @@ void Uniform3fv(GLint location, GLsizei count, const GLfloat* v)
 		return error(GL_INVALID_VALUE);
 	}
 
-	if(location == -1)
-	{
-		return;
-	}
-
 	es2::Context *context = es2::getContext();
 
 	if(context)
@@ -5680,6 +5734,11 @@ void Uniform3fv(GLint location, GLsizei count, const GLfloat* v)
 		if(!program)
 		{
 			return error(GL_INVALID_OPERATION);
+		}
+
+		if(location == -1)
+		{
+			return;
 		}
 
 		if(!program->setUniform3fv(location, count, v))
@@ -5705,11 +5764,6 @@ void Uniform3iv(GLint location, GLsizei count, const GLint* v)
 		return error(GL_INVALID_VALUE);
 	}
 
-	if(location == -1)
-	{
-		return;
-	}
-
 	es2::Context *context = es2::getContext();
 
 	if(context)
@@ -5719,6 +5773,11 @@ void Uniform3iv(GLint location, GLsizei count, const GLint* v)
 		if(!program)
 		{
 			return error(GL_INVALID_OPERATION);
+		}
+
+		if(location == -1)
+		{
+			return;
 		}
 
 		if(!program->setUniform3iv(location, count, v))
@@ -5744,11 +5803,6 @@ void Uniform4fv(GLint location, GLsizei count, const GLfloat* v)
 		return error(GL_INVALID_VALUE);
 	}
 
-	if(location == -1)
-	{
-		return;
-	}
-
 	es2::Context *context = es2::getContext();
 
 	if(context)
@@ -5758,6 +5812,11 @@ void Uniform4fv(GLint location, GLsizei count, const GLfloat* v)
 		if(!program)
 		{
 			return error(GL_INVALID_OPERATION);
+		}
+
+		if(location == -1)
+		{
+			return;
 		}
 
 		if(!program->setUniform4fv(location, count, v))
@@ -5783,11 +5842,6 @@ void Uniform4iv(GLint location, GLsizei count, const GLint* v)
 		return error(GL_INVALID_VALUE);
 	}
 
-	if(location == -1)
-	{
-		return;
-	}
-
 	es2::Context *context = es2::getContext();
 
 	if(context)
@@ -5797,6 +5851,11 @@ void Uniform4iv(GLint location, GLsizei count, const GLint* v)
 		if(!program)
 		{
 			return error(GL_INVALID_OPERATION);
+		}
+
+		if(location == -1)
+		{
+			return;
 		}
 
 		if(!program->setUniform4iv(location, count, v))
@@ -5816,11 +5875,6 @@ void UniformMatrix2fv(GLint location, GLsizei count, GLboolean transpose, const 
 		return error(GL_INVALID_VALUE);
 	}
 
-	if(location == -1)
-	{
-		return;
-	}
-
 	es2::Context *context = es2::getContext();
 
 	if(context)
@@ -5835,6 +5889,11 @@ void UniformMatrix2fv(GLint location, GLsizei count, GLboolean transpose, const 
 		if(!program)
 		{
 			return error(GL_INVALID_OPERATION);
+		}
+
+		if(location == -1)
+		{
+			return;
 		}
 
 		if(!program->setUniformMatrix2fv(location, count, transpose, value))
@@ -5854,11 +5913,6 @@ void UniformMatrix3fv(GLint location, GLsizei count, GLboolean transpose, const 
 		return error(GL_INVALID_VALUE);
 	}
 
-	if(location == -1)
-	{
-		return;
-	}
-
 	es2::Context *context = es2::getContext();
 
 	if(context)
@@ -5873,6 +5927,11 @@ void UniformMatrix3fv(GLint location, GLsizei count, GLboolean transpose, const 
 		if(!program)
 		{
 			return error(GL_INVALID_OPERATION);
+		}
+
+		if(location == -1)
+		{
+			return;
 		}
 
 		if(!program->setUniformMatrix3fv(location, count, transpose, value))
@@ -5892,11 +5951,6 @@ void UniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const 
 		return error(GL_INVALID_VALUE);
 	}
 
-	if(location == -1)
-	{
-		return;
-	}
-
 	es2::Context *context = es2::getContext();
 
 	if(context)
@@ -5911,6 +5965,11 @@ void UniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const 
 		if(!program)
 		{
 			return error(GL_INVALID_OPERATION);
+		}
+
+		if(location == -1)
+		{
+			return;
 		}
 
 		if(!program->setUniformMatrix4fv(location, count, transpose, value))
@@ -5928,6 +5987,12 @@ void UseProgram(GLuint program)
 
 	if(context)
 	{
+		es2::TransformFeedback* transformFeedback = context->getTransformFeedback();
+		if(transformFeedback && transformFeedback->isActive() && !transformFeedback->isPaused())
+		{
+			return error(GL_INVALID_OPERATION);
+		}
+
 		es2::Program *programObject = context->getProgram(program);
 
 		if(!programObject && program != 0)
@@ -6180,6 +6245,14 @@ void VertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean normal
 
 	if(context)
 	{
+		es2::VertexArray* vertexArray = context->getCurrentVertexArray();
+		if((context->getArrayBufferName() == 0) && vertexArray && (vertexArray->name != 0) && ptr)
+		{
+			// GL_INVALID_OPERATION is generated if a non-zero vertex array object is bound, zero is bound
+			// to the GL_ARRAY_BUFFER buffer object binding point and the pointer argument is not NULL.
+			return error(GL_INVALID_OPERATION);
+		}
+
 		context->setVertexAttribState(index, context->getArrayBuffer(), size, type, (normalized == GL_TRUE), stride, ptr);
 	}
 }
@@ -6308,7 +6381,14 @@ void TexImage3DOES(GLenum target, GLint level, GLenum internalformat, GLsizei wi
 			return error(GL_INVALID_OPERATION);
 		}
 
-		texture->setImage(context, level, width, height, depth, GetSizedInternalFormat(internalformat, type), type, context->getUnpackInfo(), context->getPixels(data));
+		GLenum sizedInternalFormat = GetSizedInternalFormat(internalformat, type);
+		GLenum validationError = context->getPixels(&data, type, context->getRequiredBufferSize(width, height, depth, sizedInternalFormat, type));
+		if(validationError != GL_NONE)
+		{
+			return error(validationError);
+		}
+
+		texture->setImage(context, level, width, height, depth, sizedInternalFormat, type, context->getUnpackInfo(), data);
 	}
 }
 
@@ -6351,9 +6431,15 @@ void TexSubImage3DOES(GLenum target, GLint level, GLint xoffset, GLint yoffset, 
 		GLenum sizedInternalFormat = GetSizedInternalFormat(format, type);
 
 		GLenum validationError = ValidateSubImageParams(false, width, height, depth, xoffset, yoffset, zoffset, target, level, sizedInternalFormat, texture);
+
 		if(validationError == GL_NONE)
 		{
-			texture->subImage(context, level, xoffset, yoffset, zoffset, width, height, depth, sizedInternalFormat, type, context->getUnpackInfo(), context->getPixels(data));
+			validationError = context->getPixels(&data, type, context->getRequiredBufferSize(width, height, depth, sizedInternalFormat, type));
+		}
+
+		if(validationError == GL_NONE)
+		{
+			texture->subImage(context, level, xoffset, yoffset, zoffset, width, height, depth, sizedInternalFormat, type, context->getUnpackInfo(), data);
 		}
 		else
 		{
@@ -6471,6 +6557,13 @@ void CompressedTexImage3DOES(GLenum target, GLint level, GLenum internalformat, 
 			return error(GL_INVALID_OPERATION);
 		}
 
+		GLenum validationError = context->getPixels(&data, texture->getType(target, level), imageSize);
+
+		if(validationError != GL_NONE)
+		{
+			return error(validationError);
+		}
+
 		texture->setCompressedImage(level, internalformat, width, height, depth, imageSize, data);
 	}
 }
@@ -6506,9 +6599,9 @@ void CompressedTexSubImage3DOES(GLenum target, GLint level, GLint xoffset, GLint
 		return error(validationError);
 	}
 
-	if(width == 0 || height == 0 || depth == 0 || !data)
+	if(imageSize != egl::ComputeCompressedSize(width, height, format) * depth)
 	{
-		return;
+		return error(GL_INVALID_VALUE);
 	}
 
 	es2::Context *context = es2::getContext();
@@ -6522,7 +6615,14 @@ void CompressedTexSubImage3DOES(GLenum target, GLint level, GLint xoffset, GLint
 			return error(GL_INVALID_OPERATION);
 		}
 
-		texture->subImageCompressed(level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, context->getPixels(data));
+		GLenum validationError = context->getPixels(&data, texture->getType(target, level), imageSize);
+
+		if(validationError != GL_NONE)
+		{
+			return error(validationError);
+		}
+
+		texture->subImageCompressed(level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, data);
 	}
 }
 
