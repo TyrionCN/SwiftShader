@@ -769,20 +769,6 @@ void Context::setFramebufferDrawBuffers(GLsizei n, const GLenum *bufs)
 	}
 }
 
-GLuint Context::getReadFramebufferColorIndex() const
-{
-	GLenum buf = getReadFramebuffer()->getReadBuffer();
-	switch(buf)
-	{
-	case GL_BACK:
-		return 0;
-	case GL_NONE:
-		return GL_INVALID_INDEX;
-	default:
-		return buf - GL_COLOR_ATTACHMENT0;
-}
-}
-
 GLuint Context::getArrayBufferName() const
 {
 	return mState.arrayBuffer.name();
@@ -836,10 +822,10 @@ const VertexAttribute &Context::getVertexAttribState(unsigned int attribNum) con
 	return getCurrentVertexArray()->getVertexAttribute(attribNum);
 }
 
-void Context::setVertexAttribState(unsigned int attribNum, Buffer *boundBuffer, GLint size, GLenum type, bool normalized,
-                                   GLsizei stride, const void *pointer)
+void Context::setVertexAttribState(unsigned int attribNum, Buffer *boundBuffer, GLint size, GLenum type,
+                                   bool normalized, bool pureInteger, GLsizei stride, const void *pointer)
 {
-	getCurrentVertexArray()->setAttributeState(attribNum, boundBuffer, size, type, normalized, stride, pointer);
+	getCurrentVertexArray()->setAttributeState(attribNum, boundBuffer, size, type, normalized, pureInteger, stride, pointer);
 }
 
 const void *Context::getVertexAttribPointer(unsigned int attribNum) const
@@ -1227,7 +1213,14 @@ void Context::bindReadFramebuffer(GLuint framebuffer)
 {
 	if(!getFramebuffer(framebuffer))
 	{
-		mFramebufferNameSpace.insert(framebuffer, new Framebuffer());
+		if(framebuffer == 0)
+		{
+			mFramebufferNameSpace.insert(framebuffer, new DefaultFramebuffer());
+		}
+		else
+		{
+			mFramebufferNameSpace.insert(framebuffer, new Framebuffer());
+		}
 	}
 
 	mState.readFramebuffer = framebuffer;
@@ -1237,7 +1230,14 @@ void Context::bindDrawFramebuffer(GLuint framebuffer)
 {
 	if(!getFramebuffer(framebuffer))
 	{
-		mFramebufferNameSpace.insert(framebuffer, new Framebuffer());
+		if(framebuffer == 0)
+		{
+			mFramebufferNameSpace.insert(framebuffer, new DefaultFramebuffer());
+		}
+		else
+		{
+			mFramebufferNameSpace.insert(framebuffer, new Framebuffer());
+		}
 	}
 
 	mState.drawFramebuffer = framebuffer;
@@ -2731,21 +2731,24 @@ bool Context::applyRenderTarget()
 		if(framebuffer->getDrawBuffer(i) != GL_NONE)
 		{
 			egl::Image *renderTarget = framebuffer->getRenderTarget(i);
-			device->setRenderTarget(i, renderTarget);
+			GLint layer = framebuffer->getColorbufferLayer(i);
+			device->setRenderTarget(i, renderTarget, layer);
 			if(renderTarget) renderTarget->release();
 		}
 		else
 		{
-			device->setRenderTarget(i, nullptr);
+			device->setRenderTarget(i, nullptr, 0);
 		}
 	}
 
 	egl::Image *depthBuffer = framebuffer->getDepthBuffer();
-	device->setDepthBuffer(depthBuffer);
+	GLint dLayer = framebuffer->getDepthbufferLayer();
+	device->setDepthBuffer(depthBuffer, dLayer);
 	if(depthBuffer) depthBuffer->release();
 
 	egl::Image *stencilBuffer = framebuffer->getStencilBuffer();
-	device->setStencilBuffer(stencilBuffer);
+	GLint sLayer = framebuffer->getStencilbufferLayer();
+	device->setStencilBuffer(stencilBuffer, sLayer);
 	if(stencilBuffer) stencilBuffer->release();
 
 	Viewport viewport;
@@ -3203,7 +3206,7 @@ void Context::applyTexture(sw::SamplerType type, int index, Texture *baseTexture
 				device->setTextureLevel(sampler, 0, mipmapLevel, surface, sw::TEXTURE_2D);
 			}
 		}
-		else if(baseTexture->getTarget() == GL_TEXTURE_3D_OES)
+		else if(baseTexture->getTarget() == GL_TEXTURE_3D)
 		{
 			Texture3D *texture = static_cast<Texture3D*>(baseTexture);
 
@@ -3331,12 +3334,12 @@ void Context::readPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum
 		return error(GL_INVALID_OPERATION);
 	}
 
-	sw::Rect rect = {x, y, x + width, y + height};
-	sw::Rect dstRect = { 0, 0, width, height };
-	rect.clip(0, 0, renderTarget->getWidth(), renderTarget->getHeight());
+	sw::RectF rect((float)x, (float)y, (float)(x + width), (float)(y + height));
+	sw::Rect dstRect(0, 0, width, height);
+	rect.clip(0.0f, 0.0f, (float)renderTarget->getWidth(), (float)renderTarget->getHeight());
 
 	sw::Surface *externalSurface = sw::Surface::create(width, height, 1, egl::ConvertFormatType(format, type), pixels, outputPitch, outputPitch * outputHeight);
-	sw::SliceRect sliceRect(rect);
+	sw::SliceRectF sliceRect(rect);
 	sw::SliceRect dstSliceRect(dstRect);
 	device->blit(renderTarget, sliceRect, externalSurface, dstSliceRect, false);
 	delete externalSurface;
@@ -3628,7 +3631,8 @@ void Context::drawElements(GLenum mode, GLuint start, GLuint end, GLsizei count,
 
 void Context::blit(sw::Surface *source, const sw::SliceRect &sRect, sw::Surface *dest, const sw::SliceRect &dRect)
 {
-	device->blit(source, sRect, dest, dRect, false);
+	sw::SliceRectF sRectF((float)sRect.x0, (float)sRect.y0, (float)sRect.x1, (float)sRect.y1, sRect.slice);
+	device->blit(source, sRectF, dest, dRect, false);
 }
 
 void Context::finish()
@@ -4117,7 +4121,7 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
 
 	if(mask & GL_COLOR_BUFFER_BIT)
 	{
-		GLenum readColorbufferType = readFramebuffer->getColorbufferType(getReadFramebufferColorIndex());
+		GLenum readColorbufferType = readFramebuffer->getReadBufferType();
 		GLenum drawColorbufferType = drawFramebuffer->getColorbufferType(0);
 		const bool validReadType = readColorbufferType == GL_TEXTURE_2D || Framebuffer::IsRenderbuffer(readColorbufferType);
 		const bool validDrawType = drawColorbufferType == GL_TEXTURE_2D || Framebuffer::IsRenderbuffer(drawColorbufferType);
@@ -4139,10 +4143,10 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
 		// well
 		es2::Renderbuffer *readRenderbuffer = readFramebuffer->getReadColorbuffer();
 		es2::Renderbuffer *drawRenderbuffer = drawFramebuffer->getColorbuffer(0);
-		sw::Format readFormat = readRenderbuffer->getInternalFormat();
-		sw::Format drawFormat = drawRenderbuffer->getInternalFormat();
-		GLenum readComponentType = sw2es::GetComponentType(readFormat, GL_COLOR_ATTACHMENT0);
-		GLenum drawComponentType = sw2es::GetComponentType(drawFormat, GL_COLOR_ATTACHMENT0);
+		GLint readFormat = readRenderbuffer->getFormat();
+		GLint drawFormat = drawRenderbuffer->getFormat();
+		GLenum readComponentType = GetComponentType(readFormat, GL_COLOR_ATTACHMENT0);
+		GLenum drawComponentType = GetComponentType(drawFormat, GL_COLOR_ATTACHMENT0);
 		bool readFixedPoint = ((readComponentType == GL_UNSIGNED_NORMALIZED) ||
 		                       (readComponentType == GL_SIGNED_NORMALIZED));
 		bool drawFixedPoint = ((drawComponentType == GL_UNSIGNED_NORMALIZED) ||
@@ -4201,7 +4205,7 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
 				readDSBuffer = readFramebuffer->getDepthbuffer();
 				drawDSBuffer = drawFramebuffer->getDepthbuffer();
 
-				if(readDSBuffer->getInternalFormat() != drawDSBuffer->getInternalFormat())
+				if(readDSBuffer->getFormat() != drawDSBuffer->getFormat())
 				{
 					return error(GL_INVALID_OPERATION);
 				}
@@ -4224,7 +4228,7 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
 				readDSBuffer = readFramebuffer->getStencilbuffer();
 				drawDSBuffer = drawFramebuffer->getStencilbuffer();
 
-				if(readDSBuffer->getInternalFormat() != drawDSBuffer->getInternalFormat())
+				if(readDSBuffer->getFormat() != drawDSBuffer->getFormat())
 				{
 					return error(GL_INVALID_OPERATION);
 				}

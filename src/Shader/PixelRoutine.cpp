@@ -31,7 +31,7 @@ namespace sw
 
 	PixelRoutine::PixelRoutine(const PixelProcessor::State &state, const PixelShader *shader) : QuadRasterizer(state, shader), v(shader && shader->dynamicallyIndexedInput)
 	{
-		if(!shader || shader->getVersion() < 0x0200 || forceClearRegisters)
+		if(!shader || shader->getShaderModel() < 0x0200 || forceClearRegisters)
 		{
 			for(int i = 0; i < MAX_FRAGMENT_INPUTS; i++)
 			{
@@ -1088,6 +1088,16 @@ namespace sw
 			pixel.x = UnpackLow(As<Byte8>(pixel.x), As<Byte8>(pixel.x));
 			pixel.y = UnpackHigh(As<Byte8>(pixel.y), As<Byte8>(pixel.y));
 			pixel.z = UnpackLow(As<Byte8>(pixel.z), As<Byte8>(pixel.z));
+			pixel.w = Short4(0xFFFFu);
+			break;
+		case FORMAT_G8R8:
+			buffer = cBuffer + 2 * x;
+			c01 = As<Short4>(Insert(As<Int2>(c01), *Pointer<Int>(buffer), 0));
+			buffer += *Pointer<Int>(data + OFFSET(DrawData, colorPitchB[index]));
+			c01 = As<Short4>(Insert(As<Int2>(c01), *Pointer<Int>(buffer), 1));
+			pixel.x = (c01 & Short4(0x00FFu)) | (c01 << 8);
+			pixel.y = (c01 & Short4(0xFF00u)) | As<Short4>(As<UShort4>(c01) >> 8);
+			pixel.z = Short4(0x0000u);
 			pixel.w = Short4(0xFFFFu);
 			break;
 		case FORMAT_X8B8G8R8:

@@ -230,7 +230,7 @@ void Shader::compile()
 		serial++;
 	}
 
-	int shaderVersion = compiler->getShaderVersion();
+	shaderVersion = compiler->getShaderVersion();
 	int clientVersion = es2::getContext()->getClientVersion();
 
 	if(shaderVersion >= 300 && clientVersion < 3)
@@ -389,15 +389,15 @@ GLenum VertexShader::getType() const
 	return GL_VERTEX_SHADER;
 }
 
-int VertexShader::getSemanticIndex(const std::string &attributeName)
+int VertexShader::getSemanticIndex(const std::string &attributeName) const
 {
 	if(!attributeName.empty())
 	{
-		for(glsl::ActiveAttributes::iterator attribute = activeAttributes.begin(); attribute != activeAttributes.end(); attribute++)
+		for(const auto &attribute : activeAttributes)
 		{
-			if(attribute->name == attributeName)
+			if(attribute.name == attributeName)
 			{
-				return attribute->registerIndex;
+				return attribute.registerIndex;
 			}
 		}
 	}

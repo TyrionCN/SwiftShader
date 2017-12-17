@@ -30,7 +30,7 @@ namespace sw
 		delete blitCache;
 	}
 
-	void Blitter::clear(void* pixel, sw::Format format, Surface *dest, const SliceRect &dRect, unsigned int rgbaMask)
+	void Blitter::clear(void *pixel, sw::Format format, Surface *dest, const SliceRect &dRect, unsigned int rgbaMask)
 	{
 		if(fastClear(pixel, format, dest, dRect, rgbaMask))
 		{
@@ -39,13 +39,12 @@ namespace sw
 
 		sw::Surface *color = sw::Surface::create(1, 1, 1, format, pixel, sw::Surface::bytes(format), sw::Surface::bytes(format));
 		Blitter::Options clearOptions = static_cast<sw::Blitter::Options>((rgbaMask & 0xF) | CLEAR_OPERATION);
-		SliceRect sRect(dRect);
-		sRect.slice = 0;
+		SliceRectF sRect((float)dRect.x0, (float)dRect.y0, (float)dRect.x1, (float)dRect.y1, 0);
 		blit(color, sRect, dest, dRect, clearOptions);
 		delete color;
 	}
 
-	bool Blitter::fastClear(void* pixel, sw::Format format, Surface *dest, const SliceRect &dRect, unsigned int rgbaMask)
+	bool Blitter::fastClear(void *pixel, sw::Format format, Surface *dest, const SliceRect &dRect, unsigned int rgbaMask)
 	{
 		if(format != FORMAT_A32B32G32R32F)
 		{
@@ -100,26 +99,33 @@ namespace sw
 			return false;
 		}
 
-		uint8_t *d = (uint8_t*)dest->lockInternal(dRect.x0, dRect.y0, dRect.slice, sw::LOCK_WRITEONLY, sw::PUBLIC);
+		uint8_t *slice = (uint8_t*)dest->lockInternal(dRect.x0, dRect.y0, dRect.slice, sw::LOCK_WRITEONLY, sw::PUBLIC);
 
-		switch(Surface::bytes(dest->getFormat()))
+		for(int j = 0; j < dest->getSamples(); j++)
 		{
-		case 2:
-			for(int i = dRect.y0; i < dRect.y1; i++)
+			uint8_t *d = slice;
+
+			switch(Surface::bytes(dest->getFormat()))
 			{
-				sw::clear((uint16_t*)d, packed, dRect.x1 - dRect.x0);
-				d += dest->getInternalPitchB();
+			case 2:
+				for(int i = dRect.y0; i < dRect.y1; i++)
+				{
+					sw::clear((uint16_t*)d, packed, dRect.x1 - dRect.x0);
+					d += dest->getInternalPitchB();
+				}
+				break;
+			case 4:
+				for(int i = dRect.y0; i < dRect.y1; i++)
+				{
+					sw::clear((uint32_t*)d, packed, dRect.x1 - dRect.x0);
+					d += dest->getInternalPitchB();
+				}
+				break;
+			default:
+				assert(false);
 			}
-			break;
-		case 4:
-			for(int i = dRect.y0; i < dRect.y1; i++)
-			{
-				sw::clear((uint32_t*)d, packed, dRect.x1 - dRect.x0);
-				d += dest->getInternalPitchB();
-			}
-			break;
-		default:
-			assert(false);
+
+			slice += dest->getInternalSliceB();
 		}
 
 		dest->unlockInternal();
@@ -127,7 +133,7 @@ namespace sw
 		return true;
 	}
 
-	void Blitter::blit(Surface *source, const SliceRect &sRect, Surface *dest, const SliceRect &dRect, bool filter, bool isStencil)
+	void Blitter::blit(Surface *source, const SliceRectF &sRect, Surface *dest, const SliceRect &dRect, bool filter, bool isStencil)
 	{
 		Blitter::Options options = WRITE_RGBA;
 		if(filter)
@@ -141,7 +147,7 @@ namespace sw
 		blit(source, sRect, dest, dRect, options);
 	}
 
-	void Blitter::blit(Surface *source, const SliceRect &sourceRect, Surface *dest, const SliceRect &destRect, const Blitter::Options& options)
+	void Blitter::blit(Surface *source, const SliceRectF &sourceRect, Surface *dest, const SliceRect &destRect, const Blitter::Options& options)
 	{
 		if(dest->getInternalFormat() == FORMAT_NULL)
 		{
@@ -153,7 +159,7 @@ namespace sw
 			return;
 		}
 
-		SliceRect sRect = sourceRect;
+		SliceRectF sRect = sourceRect;
 		SliceRect dRect = destRect;
 
 		bool flipX = destRect.x0 > destRect.x1;
@@ -170,14 +176,14 @@ namespace sw
 			swap(sRect.y0, sRect.y1);
 		}
 
-		source->lockInternal(sRect.x0, sRect.y0, sRect.slice, sw::LOCK_READONLY, sw::PUBLIC);
+		source->lockInternal((int)sRect.x0, (int)sRect.y0, sRect.slice, sw::LOCK_READONLY, sw::PUBLIC);
 		dest->lockInternal(dRect.x0, dRect.y0, dRect.slice, sw::LOCK_WRITEONLY, sw::PUBLIC);
 
-		float w = static_cast<float>(sRect.x1 - sRect.x0) / static_cast<float>(dRect.x1 - dRect.x0);
-		float h = static_cast<float>(sRect.y1 - sRect.y0) / static_cast<float>(dRect.y1 - dRect.y0);
+		float w = sRect.width() / dRect.width();
+		float h = sRect.height() / dRect.height();
 
-		const float xStart = (float)sRect.x0 + 0.5f * w;
-		float y = (float)sRect.y0 + 0.5f * h;
+		const float xStart = sRect.x0 + 0.5f * w;
+		float y = sRect.y0 + 0.5f * h;
 
 		for(int j = dRect.y0; j < dRect.y1; j++)
 		{
@@ -208,13 +214,13 @@ namespace sw
 		float d = static_cast<float>(source->getDepth())  / static_cast<float>(dest->getDepth());
 
 		float z = 0.5f * d;
-		for(int k = 0; k < dest->getDepth(); ++k)
+		for(int k = 0; k < dest->getDepth(); k++)
 		{
 			float y = 0.5f * h;
-			for(int j = 0; j < dest->getHeight(); ++j)
+			for(int j = 0; j < dest->getHeight(); j++)
 			{
 				float x = 0.5f * w;
-				for(int i = 0; i < dest->getWidth(); ++i)
+				for(int i = 0; i < dest->getWidth(); i++)
 				{
 					dest->copyInternal(source, i, j, k, x, y, z, true);
 					x += w;
@@ -401,18 +407,15 @@ namespace sw
 		case FORMAT_D32:
 			c.x = Float(Int((*Pointer<UInt>(element))));
 			break;
-		case FORMAT_D32F:
-			c.x = *Pointer<Float>(element);
-			break;
 		case FORMAT_D32F_COMPLEMENTARY:
+		case FORMAT_D32FS8_COMPLEMENTARY:
 			c.x = 1.0f - *Pointer<Float>(element);
 			break;
+		case FORMAT_D32F:
+		case FORMAT_D32FS8:
 		case FORMAT_D32F_LOCKABLE:
-			c.x = *Pointer<Float>(element);
-			break;
 		case FORMAT_D32FS8_TEXTURE:
-			c.x = *Pointer<Float>(element);
-			break;
+		case FORMAT_D32F_SHADOW:
 		case FORMAT_D32FS8_SHADOW:
 			c.x = *Pointer<Float>(element);
 			break;
@@ -768,18 +771,15 @@ namespace sw
 		case FORMAT_D32:
 			*Pointer<UInt>(element) = UInt(RoundInt(Float(c.x)));
 			break;
-		case FORMAT_D32F:
-			*Pointer<Float>(element) = c.x;
-			break;
 		case FORMAT_D32F_COMPLEMENTARY:
+		case FORMAT_D32FS8_COMPLEMENTARY:
 			*Pointer<Float>(element) = 1.0f - c.x;
 			break;
+		case FORMAT_D32F:
+		case FORMAT_D32FS8:
 		case FORMAT_D32F_LOCKABLE:
-			*Pointer<Float>(element) = c.x;
-			break;
 		case FORMAT_D32FS8_TEXTURE:
-			*Pointer<Float>(element) = c.x;
-			break;
+		case FORMAT_D32F_SHADOW:
 		case FORMAT_D32FS8_SHADOW:
 			*Pointer<Float>(element) = c.x;
 			break;
@@ -1065,9 +1065,12 @@ namespace sw
 			scale = vector(static_cast<float>(0xFFFFFFFF), 0.0f, 0.0f, 0.0f);
 			break;
 		case FORMAT_D32F:
+		case FORMAT_D32FS8:
 		case FORMAT_D32F_COMPLEMENTARY:
+		case FORMAT_D32FS8_COMPLEMENTARY:
 		case FORMAT_D32F_LOCKABLE:
 		case FORMAT_D32FS8_TEXTURE:
+		case FORMAT_D32F_SHADOW:
 		case FORMAT_D32FS8_SHADOW:
 		case FORMAT_S8:
 			scale = vector(1.0f, 1.0f, 1.0f, 1.0f);
@@ -1205,6 +1208,7 @@ namespace sw
 				For(Int i = x0d, i < x1d, i++)
 				{
 					Pointer<Byte> d = destLine + (dstQuadLayout ? (((j & Int(1)) << 1) + (i * 2) - (i & Int(1))) : RValue<Int>(i)) * dstBytes;
+
 					if(hasConstantColorI)
 					{
 						if(!write(constantColorI, d, state.destFormat, state.options))
@@ -1261,8 +1265,10 @@ namespace sw
 							Int X0 = Max(Int(x0), 0);
 							Int Y0 = Max(Int(y0), 0);
 
-							Int X1 = IfThenElse(X0 + 1 >= sWidth, X0, X0 + 1);
-							Int Y1 = IfThenElse(Y0 + 1 >= sHeight, Y0, Y0 + 1);
+							Int X1 = X0 + 1;
+							Int Y1 = Y0 + 1;
+							X1 = IfThenElse(X1 >= sWidth, X0, X1);
+							Y1 = IfThenElse(Y1 >= sHeight, Y0, Y1);
 
 							Pointer<Byte> s00 = source + ComputeOffset(X0, Y0, sPitchB, srcBytes, srcQuadLayout);
 							Pointer<Byte> s01 = source + ComputeOffset(X1, Y0, sPitchB, srcBytes, srcQuadLayout);
@@ -1276,16 +1282,26 @@ namespace sw
 
 							Float4 fx = Float4(x0 - Float(X0));
 							Float4 fy = Float4(y0 - Float(Y0));
+							Float4 ix = Float4(1.0f) - fx;
+							Float4 iy = Float4(1.0f) - fy;
 
-							color = c00 * (Float4(1.0f) - fx) * (Float4(1.0f) - fy) +
-							        c01 * fx * (Float4(1.0f) - fy) +
-							        c10 * (Float4(1.0f) - fx) * fy +
-							        c11 * fx * fy;
+							color = (c00 * ix + c01 * fx) * iy +
+							        (c10 * ix + c11 * fx) * fy;
 						}
 
-						if(!ApplyScaleAndClamp(color, state) || !write(color, d, state.destFormat, state.options))
+						if(!ApplyScaleAndClamp(color, state))
 						{
 							return nullptr;
+						}
+
+						for(int s = 0; s < state.destSamples; s++)
+						{
+							if(!write(color, d, state.destFormat, state.options))
+							{
+								return nullptr;
+							}
+
+							d += *Pointer<Int>(blit + OFFSET(BlitData,dSliceB));
 						}
 					}
 
@@ -1299,12 +1315,12 @@ namespace sw
 		return function(L"BlitRoutine");
 	}
 
-	bool Blitter::blitReactor(Surface *source, const SliceRect &sourceRect, Surface *dest, const SliceRect &destRect, const Blitter::Options& options)
+	bool Blitter::blitReactor(Surface *source, const SliceRectF &sourceRect, Surface *dest, const SliceRect &destRect, const Blitter::Options& options)
 	{
 		ASSERT(!(options & CLEAR_OPERATION) || ((source->getWidth() == 1) && (source->getHeight() == 1) && (source->getDepth() == 1)));
 
 		Rect dRect = destRect;
-		Rect sRect = sourceRect;
+		RectF sRect = sourceRect;
 		if(destRect.x0 > destRect.x1)
 		{
 			swap(dRect.x0, dRect.x1);
@@ -1324,6 +1340,7 @@ namespace sw
 
 		state.sourceFormat = isStencil ? source->getStencilFormat() : source->getFormat(useSourceInternal);
 		state.destFormat = isStencil ? dest->getStencilFormat() : dest->getFormat(useDestInternal);
+		state.destSamples = dest->getSamples();
 		state.options = options;
 
 		criticalSection.lock();
@@ -1357,11 +1374,12 @@ namespace sw
 		                        dest->lock(0, 0, destRect.slice, isRGBA ? (isEntireDest ? sw::LOCK_DISCARD : sw::LOCK_WRITEONLY) : sw::LOCK_READWRITE, sw::PUBLIC, useDestInternal);
 		data.sPitchB = isStencil ? source->getStencilPitchB() : source->getPitchB(useSourceInternal);
 		data.dPitchB = isStencil ? dest->getStencilPitchB() : dest->getPitchB(useDestInternal);
+		data.dSliceB = isStencil ? dest->getStencilSliceB() : dest->getSliceB(useDestInternal);
 
-		data.w = 1.0f / (dRect.x1 - dRect.x0) * (sRect.x1 - sRect.x0);
-		data.h = 1.0f / (dRect.y1 - dRect.y0) * (sRect.y1 - sRect.y0);
-		data.x0 = (float)sRect.x0 + 0.5f * data.w;
-		data.y0 = (float)sRect.y0 + 0.5f * data.h;
+		data.w = sRect.width() / dRect.width();
+		data.h = sRect.height() / dRect.height();
+		data.x0 = sRect.x0 + 0.5f * data.w;
+		data.y0 = sRect.y0 + 0.5f * data.h;
 
 		data.x0d = dRect.x0;
 		data.x1d = dRect.x1;

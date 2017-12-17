@@ -47,6 +47,7 @@ namespace sw
 
 			Format sourceFormat;
 			Format destFormat;
+			int destSamples;
 			Blitter::Options options;
 		};
 
@@ -56,6 +57,7 @@ namespace sw
 			void *dest;
 			int sPitchB;
 			int dPitchB;
+			int dSliceB;
 
 			float x0;
 			float y0;
@@ -75,12 +77,12 @@ namespace sw
 		Blitter();
 		virtual ~Blitter();
 
-		void clear(void* pixel, sw::Format format, Surface *dest, const SliceRect &dRect, unsigned int rgbaMask);
-		void blit(Surface *source, const SliceRect &sRect, Surface *dest, const SliceRect &dRect, bool filter, bool isStencil = false);
+		void clear(void *pixel, sw::Format format, Surface *dest, const SliceRect &dRect, unsigned int rgbaMask);
+		void blit(Surface *source, const SliceRectF &sRect, Surface *dest, const SliceRect &dRect, bool filter, bool isStencil = false);
 		void blit3D(Surface *source, Surface *dest);
 
 	private:
-		bool fastClear(void* pixel, sw::Format format, Surface *dest, const SliceRect &dRect, unsigned int rgbaMask);
+		bool fastClear(void *pixel, sw::Format format, Surface *dest, const SliceRect &dRect, unsigned int rgbaMask);
 
 		bool read(Float4 &color, Pointer<Byte> element, Format format);
 		bool write(Float4 &color, Pointer<Byte> element, Format format, const Blitter::Options& options);
@@ -89,8 +91,8 @@ namespace sw
 		static bool GetScale(float4& scale, Format format);
 		static bool ApplyScaleAndClamp(Float4& value, const BlitState& state);
 		static Int ComputeOffset(Int& x, Int& y, Int& pitchB, int bytes, bool quadLayout);
-		void blit(Surface *source, const SliceRect &sRect, Surface *dest, const SliceRect &dRect, const Blitter::Options& options);
-		bool blitReactor(Surface *source, const SliceRect &sRect, Surface *dest, const SliceRect &dRect, const Blitter::Options& options);
+		void blit(Surface *source, const SliceRectF &sRect, Surface *dest, const SliceRect &dRect, const Blitter::Options& options);
+		bool blitReactor(Surface *source, const SliceRectF &sRect, Surface *dest, const SliceRect &dRect, const Blitter::Options& options);
 		Routine *generate(BlitState &state);
 
 		RoutineCache<BlitState> *blitCache;
