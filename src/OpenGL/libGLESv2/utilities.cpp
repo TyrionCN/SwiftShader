@@ -1417,14 +1417,10 @@ namespace es2
 		case GL_DEPTH_COMPONENT24:
 		case GL_DEPTH_COMPONENT32_OES:
 		case GL_DEPTH_COMPONENT32F:
-<<<<<<< HEAD
-=======
 		case GL_R8_SNORM:
 		case GL_RG8_SNORM:
 		case GL_RGB8_SNORM:
 		case GL_RGBA8_SNORM:
-			return false;
->>>>>>> upstream/master
 		default:
 			return false;
 		}
