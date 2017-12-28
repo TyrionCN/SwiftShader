@@ -281,7 +281,7 @@ namespace sw
 				setupPrimitives = &Renderer::setupPoints;
 			}
 
-			DrawCall *draw = 0;
+			DrawCall *draw = nullptr;
 
 			do
 			{
@@ -682,9 +682,9 @@ namespace sw
 		blitter->clear(value, format, dest, clearRect, rgbaMask);
 	}
 
-	void Renderer::blit(Surface *source, const SliceRectF &sRect, Surface *dest, const SliceRect &dRect, bool filter, bool isStencil)
+	void Renderer::blit(Surface *source, const SliceRectF &sRect, Surface *dest, const SliceRect &dRect, bool filter, bool isStencil, bool sRGBconversion)
 	{
-		blitter->blit(source, sRect, dest, dRect, filter, isStencil);
+		blitter->blit(source, sRect, dest, dRect, {filter, isStencil, sRGBconversion});
 	}
 
 	void Renderer::blit3D(Surface *source, Surface *dest)
@@ -1165,9 +1165,18 @@ namespace sw
 
 				for(unsigned int i = 0; i < triangleCount; i++)
 				{
-					batch[i][0] = index + 0;
-					batch[i][1] = index + (index & 1) + 1;
-					batch[i][2] = index + (~index & 1) + 1;
+					if(leadingVertexFirst)
+					{
+						batch[i][0] = index + 0;
+						batch[i][1] = index + (index & 1) + 1;
+						batch[i][2] = index + (~index & 1) + 1;
+					}
+					else
+					{
+						batch[i][0] = index + (index & 1);
+						batch[i][1] = index + (~index & 1);
+						batch[i][2] = index + 2;
+					}
 
 					index += 1;
 				}
@@ -1179,9 +1188,18 @@ namespace sw
 
 				for(unsigned int i = 0; i < triangleCount; i++)
 				{
-					batch[i][0] = index + 1;
-					batch[i][1] = index + 2;
-					batch[i][2] = 0;
+					if(leadingVertexFirst)
+					{
+						batch[i][0] = index + 1;
+						batch[i][1] = index + 2;
+						batch[i][2] = 0;
+					}
+					else
+					{
+						batch[i][0] = 0;
+						batch[i][1] = index + 1;
+						batch[i][2] = index + 2;
+					}
 
 					index += 1;
 				}

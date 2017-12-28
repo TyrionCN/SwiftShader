@@ -3074,15 +3074,16 @@ void Context::applyTextures(sw::SamplerType samplerType)
 {
 	Program *programObject = getCurrentProgram();
 
-	int samplerCount = (samplerType == sw::SAMPLER_PIXEL) ? MAX_TEXTURE_IMAGE_UNITS : MAX_VERTEX_TEXTURE_IMAGE_UNITS;   // Range of samplers of given sampler type
+	const std::map<int, es2::Program::Sampler> &samplerMap = programObject->getSamplerMap(samplerType);
 
-	for(int samplerIndex = 0; samplerIndex < samplerCount; samplerIndex++)
+	int samplerIndex = 0;
+	for(auto sampler : samplerMap)
 	{
-		int textureUnit = programObject->getSamplerMapping(samplerType, samplerIndex);   // OpenGL texture image unit index
+		int textureUnit = sampler.second.logicalTextureUnit;
 
 		if(textureUnit != -1)
 		{
-			TextureType textureType = programObject->getSamplerTextureType(samplerType, samplerIndex);
+			TextureType textureType = programObject->getSamplerTextureType(samplerType, sampler.first);
 
 			Texture *texture = getSamplerTexture(textureUnit, textureType);
 
@@ -3153,6 +3154,13 @@ void Context::applyTextures(sw::SamplerType samplerType)
 		{
 			applyTexture(samplerType, samplerIndex, nullptr);
 		}
+		++samplerIndex;
+	}
+
+	int samplerCount = (samplerType == sw::SAMPLER_PIXEL) ? MAX_TEXTURE_IMAGE_UNITS : MAX_VERTEX_TEXTURE_IMAGE_UNITS;
+	for(; samplerIndex < samplerCount; ++samplerIndex)
+	{
+		applyTexture(samplerType, samplerIndex, nullptr);
 	}
 }
 
@@ -3172,7 +3180,7 @@ void Context::applyTexture(sw::SamplerType type, int index, Texture *baseTexture
 	}
 	else UNREACHABLE(type);
 
-	sw::Resource *resource = 0;
+	sw::Resource *resource = nullptr;
 
 	if(baseTexture && textureUsed)
 	{
@@ -3183,7 +3191,8 @@ void Context::applyTexture(sw::SamplerType type, int index, Texture *baseTexture
 
 	if(baseTexture && textureUsed)
 	{
-		int levelCount = baseTexture->getLevelCount();
+		int baseLevel = baseTexture->getBaseLevel();
+		int maxLevel = std::min(baseTexture->getTopLevel(), baseTexture->getMaxLevel());
 
 		if(baseTexture->getTarget() == GL_TEXTURE_2D || baseTexture->getTarget() == GL_TEXTURE_EXTERNAL_OES)
 		{
@@ -3191,15 +3200,11 @@ void Context::applyTexture(sw::SamplerType type, int index, Texture *baseTexture
 
 			for(int mipmapLevel = 0; mipmapLevel < sw::MIPMAP_LEVELS; mipmapLevel++)
 			{
-				int surfaceLevel = mipmapLevel;
+				int surfaceLevel = mipmapLevel + baseLevel;
 
-				if(surfaceLevel < 0)
+				if(surfaceLevel > maxLevel)
 				{
-					surfaceLevel = 0;
-				}
-				else if(surfaceLevel >= levelCount)
-				{
-					surfaceLevel = levelCount - 1;
+					surfaceLevel = maxLevel;
 				}
 
 				egl::Image *surface = texture->getImage(surfaceLevel);
@@ -3212,15 +3217,11 @@ void Context::applyTexture(sw::SamplerType type, int index, Texture *baseTexture
 
 			for(int mipmapLevel = 0; mipmapLevel < sw::MIPMAP_LEVELS; mipmapLevel++)
 			{
-				int surfaceLevel = mipmapLevel;
+				int surfaceLevel = mipmapLevel + baseLevel;
 
-				if(surfaceLevel < 0)
+				if(surfaceLevel > maxLevel)
 				{
-					surfaceLevel = 0;
-				}
-				else if(surfaceLevel >= levelCount)
-				{
-					surfaceLevel = levelCount - 1;
+					surfaceLevel = maxLevel;
 				}
 
 				egl::Image *surface = texture->getImage(surfaceLevel);
@@ -3233,15 +3234,11 @@ void Context::applyTexture(sw::SamplerType type, int index, Texture *baseTexture
 
 			for(int mipmapLevel = 0; mipmapLevel < sw::MIPMAP_LEVELS; mipmapLevel++)
 			{
-				int surfaceLevel = mipmapLevel;
+				int surfaceLevel = mipmapLevel + baseLevel;
 
-				if(surfaceLevel < 0)
+				if(surfaceLevel > maxLevel)
 				{
-					surfaceLevel = 0;
-				}
-				else if(surfaceLevel >= levelCount)
-				{
-					surfaceLevel = levelCount - 1;
+					surfaceLevel = maxLevel;
 				}
 
 				egl::Image *surface = texture->getImage(surfaceLevel);
@@ -3258,15 +3255,11 @@ void Context::applyTexture(sw::SamplerType type, int index, Texture *baseTexture
 
 				for(int face = 0; face < 6; face++)
 				{
-					int surfaceLevel = mipmapLevel;
+					int surfaceLevel = mipmapLevel + baseLevel;
 
-					if(surfaceLevel < 0)
+					if(surfaceLevel > maxLevel)
 					{
-						surfaceLevel = 0;
-					}
-					else if(surfaceLevel >= levelCount)
-					{
-						surfaceLevel = levelCount - 1;
+						surfaceLevel = maxLevel;
 					}
 
 					egl::Image *surface = cubeTexture->getImage(face, surfaceLevel);
@@ -3321,7 +3314,7 @@ void Context::readPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum
 	egl::Image *renderTarget = nullptr;
 	switch(format)
 	{
-	case GL_DEPTH_COMPONENT:
+	case GL_DEPTH_COMPONENT:   // GL_NV_read_depth
 		renderTarget = framebuffer->getDepthBuffer();
 		break;
 	default:
@@ -3341,7 +3334,7 @@ void Context::readPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum
 	sw::Surface *externalSurface = sw::Surface::create(width, height, 1, egl::ConvertFormatType(format, type), pixels, outputPitch, outputPitch * outputHeight);
 	sw::SliceRectF sliceRect(rect);
 	sw::SliceRect dstSliceRect(dstRect);
-	device->blit(renderTarget, sliceRect, externalSurface, dstSliceRect, false);
+	device->blit(renderTarget, sliceRect, externalSurface, dstSliceRect, false, false, false);
 	delete externalSurface;
 
 	renderTarget->release();
@@ -4376,7 +4369,7 @@ EGLenum Context::validateSharedImage(EGLenum target, GLuint name, GLuint texture
 			return EGL_BAD_PARAMETER;
 		}
 
-		if(textureLevel == 0 && !(texture->isSamplerComplete() && texture->getLevelCount() == 1))
+		if(textureLevel == 0 && !(texture->isSamplerComplete() && texture->getTopLevel() == 0))
 		{
 			return EGL_BAD_PARAMETER;
 		}
