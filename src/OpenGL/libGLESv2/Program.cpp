@@ -61,11 +61,11 @@ namespace es2
 		}
 	}
 
-	Uniform::Uniform(GLenum type, GLenum precision, const std::string &name, unsigned int arraySize,
-	                 const BlockInfo &blockInfo)
-	 : type(type), precision(precision), name(name), arraySize(arraySize), blockInfo(blockInfo)
+	Uniform::Uniform(const glsl::Uniform &uniform, const BlockInfo &blockInfo)
+	 : type(uniform.type), precision(uniform.precision), name(uniform.name),
+	   arraySize(uniform.arraySize), blockInfo(blockInfo), fields(uniform.fields)
 	{
-		if(blockInfo.index == -1)
+		if((blockInfo.index == -1) && uniform.fields.empty())
 		{
 			size_t bytes = UniformTypeSize(type) * size();
 			data = new unsigned char[bytes];
@@ -261,13 +261,24 @@ namespace es2
 			std::string baseName(name);
 			unsigned int subscript = GL_INVALID_INDEX;
 			baseName = ParseUniformName(baseName, &subscript);
-			for(auto const &input : fragmentShader->varyings)
+			for(auto const &varying : fragmentShader->varyings)
 			{
-				if(input.name == baseName)
+				if(varying.qualifier == EvqFragmentOut)
 				{
-					int rowCount = VariableRowCount(input.type);
-					int colCount = VariableColumnCount(input.type);
-					return (subscript == GL_INVALID_INDEX) ? input.reg : input.reg + (rowCount > 1 ? colCount * subscript : subscript);
+					if(varying.name == baseName)
+					{
+						ASSERT(varying.registerIndex >= 0);
+
+						if(subscript == GL_INVALID_INDEX)   // No subscript
+						{
+							return varying.registerIndex;
+						}
+
+						int rowCount = VariableRowCount(varying.type);
+						int colCount = VariableColumnCount(varying.type);
+
+						return varying.registerIndex + (rowCount > 1 ? colCount * subscript : subscript);
+					}
 				}
 			}
 		}
@@ -304,9 +315,38 @@ namespace es2
 		return attributeStream[attributeIndex];
 	}
 
-	const std::map<int, es2::Program::Sampler>& Program::getSamplerMap(sw::SamplerType type) const
+	// Returns the index of the texture image unit (0-19) corresponding to a sampler index (0-15 for the pixel shader and 0-3 for the vertex shader)
+	GLint Program::getSamplerMapping(sw::SamplerType type, unsigned int samplerIndex)
 	{
-		return (type == sw::SAMPLER_PIXEL) ? samplersPS : samplersVS;
+		GLint logicalTextureUnit = -1;
+
+		switch(type)
+		{
+		case sw::SAMPLER_PIXEL:
+			ASSERT(samplerIndex < sizeof(samplersPS) / sizeof(samplersPS[0]));
+
+			if(samplersPS[samplerIndex].active)
+			{
+				logicalTextureUnit = samplersPS[samplerIndex].logicalTextureUnit;
+			}
+			break;
+		case sw::SAMPLER_VERTEX:
+			ASSERT(samplerIndex < sizeof(samplersVS) / sizeof(samplersVS[0]));
+
+			if(samplersVS[samplerIndex].active)
+			{
+				logicalTextureUnit = samplersVS[samplerIndex].logicalTextureUnit;
+			}
+			break;
+		default: UNREACHABLE(type);
+		}
+
+		if(logicalTextureUnit < MAX_COMBINED_TEXTURE_IMAGE_UNITS)
+		{
+			return logicalTextureUnit;
+		}
+
+		return -1;
 	}
 
 	// Returns the texture type for a given sampler type and index (0-15 for the pixel shader and 0-3 for the vertex shader)
@@ -315,8 +355,12 @@ namespace es2
 		switch(type)
 		{
 		case sw::SAMPLER_PIXEL:
+			ASSERT(samplerIndex < sizeof(samplersPS)/sizeof(samplersPS[0]));
+			ASSERT(samplersPS[samplerIndex].active);
 			return samplersPS[samplerIndex].textureType;
 		case sw::SAMPLER_VERTEX:
+			ASSERT(samplerIndex < sizeof(samplersVS)/sizeof(samplersVS[0]));
+			ASSERT(samplersVS[samplerIndex].active);
 			return samplersVS[samplerIndex].textureType;
 		default: UNREACHABLE(type);
 		}
@@ -1297,6 +1341,18 @@ namespace es2
 						return false;
 					}
 
+					if((output.qualifier == EvqFlatOut) ^ (input.qualifier == EvqFlatIn))
+					{
+						appendToInfoLog("Interpolation qualifiers for %s differ between vertex and fragment shaders", output.name.c_str());
+
+						return false;
+					}
+
+					if(!areMatchingFields(input.fields, output.fields, input.name))
+					{
+						return false;
+					}
+
 					matched = true;
 					break;
 				}
@@ -1304,9 +1360,13 @@ namespace es2
 
 			if(!matched)
 			{
-				appendToInfoLog("Fragment varying %s does not match any vertex varying", input.name.c_str());
+				// If a fragment varying is declared but not statically used, it's not an error to not have a matching vertex varying.
+				if(input.registerIndex >= 0)
+				{
+					appendToInfoLog("Fragment varying %s does not match any vertex varying", input.name.c_str());
 
-				return false;
+					return false;
+				}
 			}
 		}
 
@@ -1318,14 +1378,17 @@ namespace es2
 			{
 				if(output.name == input.name)
 				{
-					int in = input.reg;
-					int out = output.reg;
+					int in = input.registerIndex;
+					int out = output.registerIndex;
 					int components = VariableRegisterSize(output.type);
 					int registers = VariableRegisterCount(output.type) * output.size();
 
-					ASSERT(in >= 0);
+					if(in < 0)  // Fragment varying declared but not used
+					{
+						continue;
+					}
 
-					if(in + registers > MAX_VARYING_VECTORS)
+					if(in + registers >= MAX_VARYING_VECTORS)
 					{
 						appendToInfoLog("Too many varyings");
 						return false;
@@ -1333,7 +1396,7 @@ namespace es2
 
 					if(out >= 0)
 					{
-						if(out + registers > MAX_VARYING_VECTORS)
+						if(out + registers >= MAX_VARYING_VECTORS)
 						{
 							appendToInfoLog("Too many varyings");
 							return false;
@@ -1366,13 +1429,13 @@ namespace es2
 
 					if(tfVaryingName == output.name)
 					{
-						int out = output.reg;
+						int out = output.registerIndex;
 						int components = VariableRegisterSize(output.type);
 						int registers = VariableRegisterCount(output.type) * output.size();
 
 						if(out >= 0)
 						{
-							if(out + registers > MAX_VARYING_VECTORS)
+							if(out + registers >= MAX_VARYING_VECTORS)
 							{
 								appendToInfoLog("Too many varyings");
 								return false;
@@ -1444,12 +1507,12 @@ namespace es2
 
 					totalComponents += componentCount;
 
-					int reg = varying.reg;
+					int reg = varying.registerIndex;
 					if(hasSubscript)
 					{
 						reg += rowCount > 1 ? colCount * subscript : subscript;
 					}
-					int col = varying.col;
+					int col = varying.column;
 					if(tfVaryingName == "gl_PointSize")
 					{
 						// Point size is stored in the y element of the vector, not the x element
@@ -1643,12 +1706,8 @@ namespace es2
 
 	bool Program::linkUniforms(const Shader *shader)
 	{
-		const glsl::ActiveUniforms &activeUniforms = shader->activeUniforms;
-
-		for(unsigned int uniformIndex = 0; uniformIndex < activeUniforms.size(); uniformIndex++)
+		for(const auto &uniform : shader->activeUniforms)
 		{
-			const glsl::Uniform &uniform = activeUniforms[uniformIndex];
-
 			unsigned int blockIndex = GL_INVALID_INDEX;
 			if(uniform.blockId >= 0)
 			{
@@ -1657,7 +1716,15 @@ namespace es2
 				blockIndex = getUniformBlockIndex(activeUniformBlocks[uniform.blockId].name);
 				ASSERT(blockIndex != GL_INVALID_INDEX);
 			}
-			if(!defineUniform(shader->getType(), uniform.type, uniform.precision, uniform.name, uniform.arraySize, uniform.registerIndex, Uniform::BlockInfo(uniform, blockIndex)))
+			if(!defineUniform(shader->getType(), uniform, Uniform::BlockInfo(uniform, blockIndex)))
+			{
+				return false;
+			}
+		}
+
+		for(const auto &uniformStruct : shader->activeUniformStructs)
+		{
+			if(!validateUniformStruct(shader->getType(), uniformStruct))
 			{
 				return false;
 			}
@@ -1666,21 +1733,23 @@ namespace es2
 		return true;
 	}
 
-	bool Program::defineUniform(GLenum shader, GLenum type, GLenum precision, const std::string &name, unsigned int arraySize, int registerIndex, const Uniform::BlockInfo& blockInfo)
+	bool Program::defineUniform(GLenum shader, const glsl::Uniform &glslUniform, const Uniform::BlockInfo& blockInfo)
 	{
-		if(IsSamplerUniform(type))
+		if(IsSamplerUniform(glslUniform.type))
 	    {
-			int index = registerIndex;
+			int index = glslUniform.registerIndex;
 
 			do
 			{
 				if(shader == GL_VERTEX_SHADER)
 				{
-					if(samplersVS.size() < MAX_VERTEX_TEXTURE_IMAGE_UNITS)
+					if(index < MAX_VERTEX_TEXTURE_IMAGE_UNITS)
 					{
-						switch(type)
+						samplersVS[index].active = true;
+
+						switch(glslUniform.type)
 						{
-						default:                      UNREACHABLE(type);
+						default:                      UNREACHABLE(glslUniform.type);
 						case GL_INT_SAMPLER_2D:
 						case GL_UNSIGNED_INT_SAMPLER_2D:
 						case GL_SAMPLER_2D_SHADOW:
@@ -1709,11 +1778,13 @@ namespace es2
 				}
 				else if(shader == GL_FRAGMENT_SHADER)
 				{
-					if(samplersPS.size() < MAX_TEXTURE_IMAGE_UNITS)
+					if(index < MAX_TEXTURE_IMAGE_UNITS)
 					{
-						switch(type)
+						samplersPS[index].active = true;
+
+						switch(glslUniform.type)
 						{
-						default:                      UNREACHABLE(type);
+						default:                      UNREACHABLE(glslUniform.type);
 						case GL_INT_SAMPLER_2D:
 						case GL_UNSIGNED_INT_SAMPLER_2D:
 						case GL_SAMPLER_2D_SHADOW:
@@ -1744,31 +1815,36 @@ namespace es2
 
 				index++;
 			}
-			while(index < registerIndex + static_cast<int>(arraySize));
+			while(index < glslUniform.registerIndex + static_cast<int>(glslUniform.arraySize));
 	    }
 
 		Uniform *uniform = 0;
-		GLint location = getUniformLocation(name);
+		GLint location = getUniformLocation(glslUniform.name);
 
 		if(location >= 0)   // Previously defined, types must match
 		{
 			uniform = uniforms[uniformIndex[location].index];
 
-			if(uniform->type != type)
+			if(uniform->type != glslUniform.type)
 			{
 				appendToInfoLog("Types for uniform %s do not match between the vertex and fragment shader", uniform->name.c_str());
 				return false;
 			}
 
-			if(uniform->precision != precision)
+			if(uniform->precision != glslUniform.precision)
 			{
 				appendToInfoLog("Precisions for uniform %s do not match between the vertex and fragment shader", uniform->name.c_str());
+				return false;
+			}
+
+			if(!areMatchingFields(uniform->fields, glslUniform.fields, uniform->name))
+			{
 				return false;
 			}
 		}
 		else
 		{
-			uniform = new Uniform(type, precision, name, arraySize, blockInfo);
+			uniform = new Uniform(glslUniform, blockInfo);
 		}
 
 		if(!uniform)
@@ -1778,28 +1854,28 @@ namespace es2
 
 		if(shader == GL_VERTEX_SHADER)
 		{
-			uniform->vsRegisterIndex = registerIndex;
+			uniform->vsRegisterIndex = glslUniform.registerIndex;
 		}
 		else if(shader == GL_FRAGMENT_SHADER)
 		{
-			uniform->psRegisterIndex = registerIndex;
+			uniform->psRegisterIndex = glslUniform.registerIndex;
 		}
 		else UNREACHABLE(shader);
 
-		if(!isUniformDefined(name))
+		if(!isUniformDefined(glslUniform.name))
 		{
 			uniforms.push_back(uniform);
 			unsigned int index = (blockInfo.index == -1) ? static_cast<unsigned int>(uniforms.size() - 1) : GL_INVALID_INDEX;
 
 			for(int i = 0; i < uniform->size(); i++)
 			{
-				uniformIndex.push_back(UniformLocation(name, i, index));
+				uniformIndex.push_back(UniformLocation(glslUniform.name, i, index));
 			}
 		}
 
 		if(shader == GL_VERTEX_SHADER)
 		{
-			if(registerIndex + uniform->registerCount() > MAX_VERTEX_UNIFORM_VECTORS)
+			if(glslUniform.registerIndex + uniform->registerCount() > MAX_VERTEX_UNIFORM_VECTORS)
 			{
 				appendToInfoLog("Vertex shader active uniforms exceed GL_MAX_VERTEX_UNIFORM_VECTORS (%d)", MAX_VERTEX_UNIFORM_VECTORS);
 				return false;
@@ -1807,7 +1883,7 @@ namespace es2
 		}
 		else if(shader == GL_FRAGMENT_SHADER)
 		{
-			if(registerIndex + uniform->registerCount() > MAX_FRAGMENT_UNIFORM_VECTORS)
+			if(glslUniform.registerIndex + uniform->registerCount() > MAX_FRAGMENT_UNIFORM_VECTORS)
 			{
 				appendToInfoLog("Fragment shader active uniforms exceed GL_MAX_FRAGMENT_UNIFORM_VECTORS (%d)", MAX_FRAGMENT_UNIFORM_VECTORS);
 				return false;
@@ -1818,19 +1894,37 @@ namespace es2
 		return true;
 	}
 
+	bool Program::validateUniformStruct(GLenum shader, const glsl::Uniform &newUniformStruct)
+	{
+		for(const auto &uniformStruct : uniformStructs)
+		{
+			if(uniformStruct.name == newUniformStruct.name)
+			{
+				return areMatchingFields(uniformStruct.fields, newUniformStruct.fields, newUniformStruct.name);
+			}
+		}
+
+		uniformStructs.push_back(Uniform(newUniformStruct, Uniform::BlockInfo(newUniformStruct, -1)));
+
+		return true;
+	}
+
 	bool Program::areMatchingUniformBlocks(const glsl::UniformBlock &block1, const glsl::UniformBlock &block2, const Shader *shader1, const Shader *shader2)
 	{
 		// validate blocks for the same member types
 		if(block1.fields.size() != block2.fields.size())
 		{
+			appendToInfoLog("Types for interface block '%s' differ between vertex and fragment shaders", block1.name.c_str());
 			return false;
 		}
 		if(block1.arraySize != block2.arraySize)
 		{
+			appendToInfoLog("Array sizes differ for interface block '%s' between vertex and fragment shaders", block1.name.c_str());
 			return false;
 		}
 		if(block1.layout != block2.layout || block1.isRowMajorLayout != block2.isRowMajorLayout)
 		{
+			appendToInfoLog("Layout qualifiers differ for interface block '%s' between vertex and fragment shaders", block1.name.c_str());
 			return false;
 		}
 		const size_t numBlockMembers = block1.fields.size();
@@ -1838,14 +1932,68 @@ namespace es2
 		{
 			const glsl::Uniform& member1 = shader1->activeUniforms[block1.fields[blockMemberIndex]];
 			const glsl::Uniform& member2 = shader2->activeUniforms[block2.fields[blockMemberIndex]];
-			if(member1.name != member2.name ||
-			   member1.arraySize != member2.arraySize ||
-			   member1.precision != member2.precision ||
-			   member1.type != member2.type)
+			if(member1.name != member2.name)
+			{
+				appendToInfoLog("Name mismatch for field %d of interface block '%s': (in vertex: '%s', in fragment: '%s')",
+				                blockMemberIndex, block1.name.c_str(), member1.name.c_str(), member2.name.c_str());
+				return false;
+			}
+			if(member1.arraySize != member2.arraySize)
+			{
+				appendToInfoLog("Array sizes for %s differ between vertex and fragment shaders", member1.name.c_str());
+				return false;
+			}
+			if(member1.precision != member2.precision)
+			{
+				appendToInfoLog("Precisions for %s differ between vertex and fragment shaders", member1.name.c_str());
+				return false;
+			}
+			if(member1.type != member2.type)
+			{
+				appendToInfoLog("Types for %s differ between vertex and fragment shaders", member1.name.c_str());
+				return false;
+			}
+			if(member1.blockInfo.isRowMajorMatrix != member2.blockInfo.isRowMajorMatrix)
+			{
+				appendToInfoLog("Matrix packings for %s differ between vertex and fragment shaders", member1.name.c_str());
+				return false;
+			}
+		}
+		return true;
+	}
+
+	bool Program::areMatchingFields(const std::vector<glsl::ShaderVariable>& fields1, const std::vector<glsl::ShaderVariable>& fields2, const std::string& name)
+	{
+		if(fields1.size() != fields2.size())
+		{
+			appendToInfoLog("Structure lengths for %s differ between vertex and fragment shaders", name.c_str());
+			return false;
+		}
+
+		for(size_t i = 0; i < fields1.size(); ++i)
+		{
+			if(fields1[i].name != fields2[i].name)
+			{
+				appendToInfoLog("Name mismatch for field '%d' of %s: ('%s', '%s')",
+				                i, name.c_str(), fields1[i].name.c_str(), fields2[i].name.c_str());
+				return false;
+			}
+			if(fields1[i].type != fields2[i].type)
+			{
+				appendToInfoLog("Type for %s.%s differ between vertex and fragment shaders", name.c_str(), fields1[i].name.c_str());
+				return false;
+			}
+			if(fields1[i].arraySize != fields2[i].arraySize)
+			{
+				appendToInfoLog("Array size for %s.%s differ between vertex and fragment shaders", name.c_str(), fields1[i].name.c_str());
+				return false;
+			}
+			if(!areMatchingFields(fields1[i].fields, fields2[i].fields, fields1[i].name))
 			{
 				return false;
 			}
 		}
+
 		return true;
 	}
 
@@ -2230,8 +2378,9 @@ namespace es2
 				{
 					unsigned int samplerIndex = targetUniform->psRegisterIndex + i;
 
-					if(samplersPS.find(samplerIndex) != samplersPS.end())
+					if(samplerIndex < MAX_TEXTURE_IMAGE_UNITS)
 					{
+						ASSERT(samplersPS[samplerIndex].active);
 						samplersPS[samplerIndex].logicalTextureUnit = v[i];
 					}
 				}
@@ -2243,8 +2392,9 @@ namespace es2
 				{
 					unsigned int samplerIndex = targetUniform->vsRegisterIndex + i;
 
-					if(samplersVS.find(samplerIndex) != samplersVS.end())
+					if(samplerIndex < MAX_VERTEX_TEXTURE_IMAGE_UNITS)
 					{
+						ASSERT(samplersVS[samplerIndex].active);
 						samplersVS[samplerIndex].logicalTextureUnit = v[i];
 					}
 				}
@@ -2330,8 +2480,9 @@ namespace es2
 				{
 					unsigned int samplerIndex = targetUniform->psRegisterIndex + i;
 
-					if(samplersPS.find(samplerIndex) != samplersPS.end())
+					if(samplerIndex < MAX_TEXTURE_IMAGE_UNITS)
 					{
+						ASSERT(samplersPS[samplerIndex].active);
 						samplersPS[samplerIndex].logicalTextureUnit = v[i];
 					}
 				}
@@ -2343,8 +2494,9 @@ namespace es2
 				{
 					unsigned int samplerIndex = targetUniform->vsRegisterIndex + i;
 
-					if(samplersVS.find(samplerIndex) != samplersVS.end())
+					if(samplerIndex < MAX_VERTEX_TEXTURE_IMAGE_UNITS)
 					{
+						ASSERT(samplersVS[samplerIndex].active);
 						samplersVS[samplerIndex].logicalTextureUnit = v[i];
 					}
 				}
@@ -2469,8 +2621,15 @@ namespace es2
 			attributeStream[index] = -1;
 		}
 
-		samplersPS.clear();
-		samplersVS.clear();
+		for(int index = 0; index < MAX_TEXTURE_IMAGE_UNITS; index++)
+		{
+			samplersPS[index].active = false;
+		}
+
+		for(int index = 0; index < MAX_VERTEX_TEXTURE_IMAGE_UNITS; index++)
+		{
+			samplersVS[index].active = false;
+		}
 
 		while(!uniforms.empty())
 		{
@@ -2886,67 +3045,73 @@ namespace es2
 			textureUnitType[i] = TEXTURE_UNKNOWN;
 		}
 
-		for(auto sampler : samplersPS)
+		for(unsigned int i = 0; i < MAX_TEXTURE_IMAGE_UNITS; i++)
 		{
-			unsigned int unit = sampler.second.logicalTextureUnit;
-
-			if(unit >= MAX_COMBINED_TEXTURE_IMAGE_UNITS)
+			if(samplersPS[i].active)
 			{
-				if(logErrors)
-				{
-					appendToInfoLog("Sampler uniform (%d) exceeds MAX_COMBINED_TEXTURE_IMAGE_UNITS (%d)", unit, MAX_COMBINED_TEXTURE_IMAGE_UNITS);
-				}
+				unsigned int unit = samplersPS[i].logicalTextureUnit;
 
-				return false;
-			}
-
-			if(textureUnitType[unit] != TEXTURE_UNKNOWN)
-			{
-				if(sampler.second.textureType != textureUnitType[unit])
+				if(unit >= MAX_COMBINED_TEXTURE_IMAGE_UNITS)
 				{
 					if(logErrors)
 					{
-						appendToInfoLog("Samplers of conflicting types refer to the same texture image unit (%d).", unit);
+						appendToInfoLog("Sampler uniform (%d) exceeds MAX_COMBINED_TEXTURE_IMAGE_UNITS (%d)", unit, MAX_COMBINED_TEXTURE_IMAGE_UNITS);
 					}
 
 					return false;
 				}
-			}
-			else
-			{
-				textureUnitType[unit] = sampler.second.textureType;
+
+				if(textureUnitType[unit] != TEXTURE_UNKNOWN)
+				{
+					if(samplersPS[i].textureType != textureUnitType[unit])
+					{
+						if(logErrors)
+						{
+							appendToInfoLog("Samplers of conflicting types refer to the same texture image unit (%d).", unit);
+						}
+
+						return false;
+					}
+				}
+				else
+				{
+					textureUnitType[unit] = samplersPS[i].textureType;
+				}
 			}
 		}
 
-		for(auto sampler : samplersVS)
+		for(unsigned int i = 0; i < MAX_VERTEX_TEXTURE_IMAGE_UNITS; i++)
 		{
-			unsigned int unit = sampler.second.logicalTextureUnit;
-
-			if(unit >= MAX_COMBINED_TEXTURE_IMAGE_UNITS)
+			if(samplersVS[i].active)
 			{
-				if(logErrors)
-				{
-					appendToInfoLog("Sampler uniform (%d) exceeds MAX_COMBINED_TEXTURE_IMAGE_UNITS (%d)", unit, MAX_COMBINED_TEXTURE_IMAGE_UNITS);
-				}
+				unsigned int unit = samplersVS[i].logicalTextureUnit;
 
-				return false;
-			}
-
-			if(textureUnitType[unit] != TEXTURE_UNKNOWN)
-			{
-				if(sampler.second.textureType != textureUnitType[unit])
+				if(unit >= MAX_COMBINED_TEXTURE_IMAGE_UNITS)
 				{
 					if(logErrors)
 					{
-						appendToInfoLog("Samplers of conflicting types refer to the same texture image unit (%d).", unit);
+						appendToInfoLog("Sampler uniform (%d) exceeds MAX_COMBINED_TEXTURE_IMAGE_UNITS (%d)", unit, MAX_COMBINED_TEXTURE_IMAGE_UNITS);
 					}
 
 					return false;
 				}
-			}
-			else
-			{
-				textureUnitType[unit] = sampler.second.textureType;
+
+				if(textureUnitType[unit] != TEXTURE_UNKNOWN)
+				{
+					if(samplersVS[i].textureType != textureUnitType[unit])
+					{
+						if(logErrors)
+						{
+							appendToInfoLog("Samplers of conflicting types refer to the same texture image unit (%d).", unit);
+						}
+
+						return false;
+					}
+				}
+				else
+				{
+					textureUnitType[unit] = samplersVS[i].textureType;
+				}
 			}
 		}
 

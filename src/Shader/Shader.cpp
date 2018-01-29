@@ -1474,7 +1474,10 @@ namespace sw
 
 	void Shader::declareSampler(int i)
 	{
-		usedSamplers |= 1 << i;
+		if(i >= 0 && i < 16)
+		{
+			usedSamplers |= 1 << i;
+		}
 	}
 
 	const Shader::Instruction *Shader::getInstruction(size_t i) const
@@ -1681,12 +1684,12 @@ namespace sw
 
 		for(unsigned int i = 0; i < instruction.size(); i++)
 		{
-			// If statements
-			if(instruction[i]->isBranch())
+			// If statements and loops
+			if(instruction[i]->isBranch() || instruction[i]->isLoop())
 			{
 				branchDepth++;
 			}
-			else if(instruction[i]->opcode == OPCODE_ENDIF)
+			else if(instruction[i]->opcode == OPCODE_ENDIF || instruction[i]->isEndLoop())
 			{
 				branchDepth--;
 			}

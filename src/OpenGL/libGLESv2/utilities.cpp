@@ -896,6 +896,7 @@ namespace es2
 			case GL_RGB565:
 			case GL_RGB8:
 			case GL_RGBA8:
+			case GL_BGRA8_EXT:   // GL_APPLE_texture_format_BGRA8888
 			case GL_R16F:
 			case GL_RG16F:
 			case GL_R11F_G11F_B10F:
@@ -996,12 +997,12 @@ namespace es2
 					return GL_INVALID_OPERATION;
 				}
 				break;
-		//	case GL_BGRA_EXT:
-		//		if(type != GL_UNSIGNED_BYTE)   // GL_APPLE_texture_format_BGRA8888
-		//		{
-		//			return GL_INVALID_OPERATION;
-		//		}
-		//		break;
+			case GL_BGRA_EXT:
+				if(type != GL_UNSIGNED_BYTE)   // GL_APPLE_texture_format_BGRA8888 / GL_EXT_texture_format_BGRA8888
+				{
+					return GL_INVALID_OPERATION;
+				}
+				break;
 			default:
 				UNREACHABLE(format);
 				return GL_INVALID_ENUM;
@@ -1136,9 +1137,8 @@ namespace es2
 			switch(type)
 			{
 			case GL_UNSIGNED_BYTE:  VALIDATE_INTERNALFORMAT(GL_LUMINANCE8_ALPHA8_EXT)
-			case GL_HALF_FLOAT_OES:
-			case GL_FLOAT:
-				break;
+			case GL_HALF_FLOAT_OES: // Invalid, only exists as unsized.
+			case GL_FLOAT:          // Invalid, only exists as unsized.
 			default:
 				return GL_INVALID_OPERATION;
 			}
@@ -1147,9 +1147,8 @@ namespace es2
 			switch(type)
 			{
 			case GL_UNSIGNED_BYTE:  VALIDATE_INTERNALFORMAT(GL_LUMINANCE8_EXT)
-			case GL_HALF_FLOAT_OES:
-			case GL_FLOAT:
-				break;
+			case GL_HALF_FLOAT_OES: // Invalid, only exists as unsized.
+			case GL_FLOAT:          // Invalid, only exists as unsized.
 			default:
 				return GL_INVALID_OPERATION;
 			}
@@ -1158,17 +1157,17 @@ namespace es2
 			switch(type)
 			{
 			case GL_UNSIGNED_BYTE:  VALIDATE_INTERNALFORMAT(GL_ALPHA8_EXT)
-			case GL_HALF_FLOAT_OES:
-			case GL_FLOAT:
-				break;
+			case GL_HALF_FLOAT_OES: // Invalid, only exists as unsized.
+			case GL_FLOAT:          // Invalid, only exists as unsized.
 			default:
 				return GL_INVALID_OPERATION;
 			}
 			break;
-		case GL_BGRA_EXT:
-			if(type != GL_UNSIGNED_BYTE)
+		case GL_BGRA_EXT:   // GL_APPLE_texture_format_BGRA8888
+			switch(type)
 			{
-				return GL_INVALID_OPERATION;
+			case GL_UNSIGNED_BYTE: VALIDATE_INTERNALFORMAT(GL_BGRA8_EXT)
+			default:               return GL_INVALID_OPERATION;
 			}
 			break;
 		default:
@@ -1242,7 +1241,7 @@ namespace es2
 		case GL_RG32F:
 		case GL_RGB32F:
 		case GL_RGBA32F:
-		case GL_BGRA8_EXT:
+		case GL_BGRA8_EXT:   // GL_EXT_texture_format_BGRA8888
 			return true;
 		case GL_R8UI:
 		case GL_R8I:
@@ -1693,6 +1692,7 @@ namespace es2
 		case GL_RGB8:
 		case GL_RGBA8:
 		case GL_SRGB8:
+		case GL_BGRA8_EXT:
 			return GL_UNSIGNED_NORMALIZED;
 		case GL_R8_SNORM:
 		case GL_RG8_SNORM:
@@ -2054,15 +2054,12 @@ namespace es2sw
 		case GL_NEAREST:
 		case GL_LINEAR:
 			return sw::MIPMAP_NONE;
-			break;
 		case GL_NEAREST_MIPMAP_NEAREST:
 		case GL_LINEAR_MIPMAP_NEAREST:
 			return sw::MIPMAP_POINT;
-			break;
 		case GL_NEAREST_MIPMAP_LINEAR:
 		case GL_LINEAR_MIPMAP_LINEAR:
 			return sw::MIPMAP_LINEAR;
-			break;
 		default:
 			UNREACHABLE(minFilter);
 			return sw::MIPMAP_NONE;
@@ -2076,12 +2073,13 @@ namespace es2sw
 			return sw::FILTER_ANISOTROPIC;
 		}
 
-		sw::FilterType magFilterType = sw::FILTER_POINT;
 		switch(magFilter)
 		{
-		case GL_NEAREST: magFilterType = sw::FILTER_POINT;  break;
-		case GL_LINEAR:  magFilterType = sw::FILTER_LINEAR; break;
-		default: UNREACHABLE(magFilter);
+		case GL_NEAREST:
+		case GL_LINEAR:
+			break;
+		default:
+			UNREACHABLE(magFilter);
 		}
 
 		switch(minFilter)
@@ -2089,14 +2087,14 @@ namespace es2sw
 		case GL_NEAREST:
 		case GL_NEAREST_MIPMAP_NEAREST:
 		case GL_NEAREST_MIPMAP_LINEAR:
-			return (magFilterType == sw::FILTER_POINT) ? sw::FILTER_POINT : sw::FILTER_MIN_POINT_MAG_LINEAR;
+			return (magFilter == GL_NEAREST) ? sw::FILTER_POINT : sw::FILTER_MIN_POINT_MAG_LINEAR;
 		case GL_LINEAR:
 		case GL_LINEAR_MIPMAP_NEAREST:
 		case GL_LINEAR_MIPMAP_LINEAR:
-			return (magFilterType == sw::FILTER_POINT) ? sw::FILTER_MIN_LINEAR_MAG_POINT : sw::FILTER_LINEAR;
+			return (magFilter == GL_NEAREST) ? sw::FILTER_MIN_LINEAR_MAG_POINT : sw::FILTER_LINEAR;
 		default:
 			UNREACHABLE(minFilter);
-			return (magFilterType == sw::FILTER_POINT) ? sw::FILTER_POINT : sw::FILTER_MIN_POINT_MAG_LINEAR;
+			return sw::FILTER_POINT;
 		}
 	}
 

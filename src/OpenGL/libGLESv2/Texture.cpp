@@ -460,7 +460,12 @@ bool Texture::copy(egl::Image *source, const sw::SliceRect &sourceRect, GLint xo
 	Device *device = getDevice();
 
 	sw::SliceRect destRect(xoffset, yoffset, xoffset + (sourceRect.x1 - sourceRect.x0), yoffset + (sourceRect.y1 - sourceRect.y0), zoffset);
-	bool success = device->stretchRect(source, &sourceRect, dest, &destRect, Device::ALL_BUFFERS);
+	sw::SliceRectF sourceRectF(static_cast<float>(sourceRect.x0),
+	                           static_cast<float>(sourceRect.y0),
+	                           static_cast<float>(sourceRect.x1),
+	                           static_cast<float>(sourceRect.y1),
+	                           sourceRect.slice);
+	bool success = device->stretchRect(source, &sourceRectF, dest, &destRect, Device::ALL_BUFFERS);
 
 	if(!success)
 	{
@@ -607,14 +612,14 @@ int Texture2D::getTopLevel() const
 	return level - 1;
 }
 
-void Texture2D::setImage(egl::Context *context, GLint level, GLsizei width, GLsizei height, GLenum format, GLenum type, const egl::Image::UnpackInfo& unpackInfo, const void *pixels)
+void Texture2D::setImage(egl::Context *context, GLint level, GLsizei width, GLsizei height, GLint internalformat, GLenum format, GLenum type, const egl::Image::UnpackInfo& unpackInfo, const void *pixels)
 {
 	if(image[level])
 	{
 		image[level]->release();
 	}
 
-	image[level] = egl::Image::create(this, width, height, format, type);
+	image[level] = egl::Image::create(this, width, height, internalformat, type);
 
 	if(!image[level])
 	{
@@ -1251,7 +1256,7 @@ void TextureCubeMap::updateBorders(int level)
 		return;
 	}
 
-	if(!posX->hasDirtyContents() || !posY->hasDirtyContents() || !posZ->hasDirtyContents() || !negX->hasDirtyContents() || !negY->hasDirtyContents() || !negY->hasDirtyContents())
+	if(!posX->hasDirtyContents() || !posY->hasDirtyContents() || !posZ->hasDirtyContents() || !negX->hasDirtyContents() || !negY->hasDirtyContents() || !negZ->hasDirtyContents())
 	{
 		return;
 	}
@@ -1310,7 +1315,7 @@ void TextureCubeMap::releaseTexImage()
 	UNREACHABLE(0);   // Cube maps cannot have an EGL surface bound as an image
 }
 
-void TextureCubeMap::setImage(egl::Context *context, GLenum target, GLint level, GLsizei width, GLsizei height, GLenum format, GLenum type, const egl::Image::UnpackInfo& unpackInfo, const void *pixels)
+void TextureCubeMap::setImage(egl::Context *context, GLenum target, GLint level, GLsizei width, GLsizei height, GLint internalformat, GLenum format, GLenum type, const egl::Image::UnpackInfo& unpackInfo, const void *pixels)
 {
 	int face = CubeFaceIndex(target);
 
@@ -1320,7 +1325,7 @@ void TextureCubeMap::setImage(egl::Context *context, GLenum target, GLint level,
 	}
 
 	int border = (egl::getClientVersion() >= 3) ? 1 : 0;
-	image[face][level] = egl::Image::create(this, width, height, 1, border, format, type);
+	image[face][level] = egl::Image::create(this, width, height, 1, border, internalformat, type);
 
 	if(!image[face][level])
 	{
@@ -1635,14 +1640,14 @@ int Texture3D::getTopLevel() const
 	return level - 1;
 }
 
-void Texture3D::setImage(egl::Context *context, GLint level, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, const egl::Image::UnpackInfo& unpackInfo, const void *pixels)
+void Texture3D::setImage(egl::Context *context, GLint level, GLsizei width, GLsizei height, GLsizei depth, GLint internalformat, GLenum format, GLenum type, const egl::Image::UnpackInfo& unpackInfo, const void *pixels)
 {
 	if(image[level])
 	{
 		image[level]->release();
 	}
 
-	image[level] = egl::Image::create(this, width, height, depth, 0, format, type);
+	image[level] = egl::Image::create(this, width, height, depth, 0, internalformat, type);
 
 	if(!image[level])
 	{
@@ -1997,7 +2002,7 @@ void Texture2DArray::generateMipmaps()
 		GLsizei srch = image[i - 1]->getHeight();
 		for(int z = 0; z < depth; ++z)
 		{
-			sw::SliceRect srcRect(0, 0, srcw, srch, z);
+			sw::SliceRectF srcRect(0.0f, 0.0f, static_cast<float>(srcw), static_cast<float>(srch), z);
 			sw::SliceRect dstRect(0, 0, w, h, z);
 			getDevice()->stretchRect(image[i - 1], &srcRect, image[i], &dstRect, Device::ALL_BUFFERS | Device::USE_FILTER);
 		}

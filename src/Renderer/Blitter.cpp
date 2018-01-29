@@ -1074,7 +1074,7 @@ namespace sw
 		return true;
 	}
 
-	bool Blitter::ApplyScaleAndClamp(Float4 &value, const State  &state)
+	bool Blitter::ApplyScaleAndClamp(Float4 &value, const State &state, bool preScaled)
 	{
 		float4 scale, unscale;
 		if(state.clearOperation &&
@@ -1108,20 +1108,12 @@ namespace sw
 		bool srcSRGB = Surface::isSRGBformat(state.sourceFormat);
 		bool dstSRGB = Surface::isSRGBformat(state.destFormat);
 
-		if(state.convertSRGB && (srcSRGB ^ dstSRGB))   // One of the formats is sRGB encoded.
+		if(state.convertSRGB && ((srcSRGB && !preScaled) || dstSRGB))   // One of the formats is sRGB encoded.
 		{
-			value = value * Float4(1.0f / unscale.x, 1.0f / unscale.y, 1.0f / unscale.z, 1.0f / unscale.w);
-
-			if(srcSRGB)
-			{
-				value = sRGBtoLinear(value);
-			}
-			else   // dstSRGB
-			{
-				value = LinearToSRGB(value);
-			}
-
-			value = value * Float4(scale.x, scale.y, scale.z, scale.w);
+			value *= preScaled ? Float4(1.0f / scale.x, 1.0f / scale.y, 1.0f / scale.z, 1.0f / scale.w) : // Unapply scale
+			                     Float4(1.0f / unscale.x, 1.0f / unscale.y, 1.0f / unscale.z, 1.0f / unscale.w); // Apply unscale
+			value = (srcSRGB && !preScaled) ? sRGBtoLinear(value) : LinearToSRGB(value);
+			value *= Float4(scale.x, scale.y, scale.z, scale.w); // Apply scale
 		}
 		else if(unscale != scale)
 		{
@@ -1275,6 +1267,12 @@ namespace sw
 						Int X = Int(x);
 						Int Y = Int(y);
 
+						if(state.clampToEdge)
+						{
+							X = Clamp(X, 0, sWidth - 1);
+							Y = Clamp(Y, 0, sHeight - 1);
+						}
+
 						Pointer<Byte> s = source + ComputeOffset(X, Y, sPitchB, srcBytes, srcQuadLayout);
 
 						if(!read(color, s, state))
@@ -1291,10 +1289,17 @@ namespace sw
 					{
 						Float4 color;
 
+						bool preScaled = false;
 						if(!state.filter || intSrc)
 						{
 							Int X = Int(x);
 							Int Y = Int(y);
+
+							if(state.clampToEdge)
+							{
+								X = Clamp(X, 0, sWidth - 1);
+								Y = Clamp(Y, 0, sHeight - 1);
+							}
 
 							Pointer<Byte> s = source + ComputeOffset(X, Y, sPitchB, srcBytes, srcQuadLayout);
 
@@ -1305,8 +1310,17 @@ namespace sw
 						}
 						else   // Bilinear filtering
 						{
-							Float x0 = x - 0.5f;
-							Float y0 = y - 0.5f;
+							Float X = x;
+							Float Y = y;
+
+							if(state.clampToEdge)
+							{
+								X = Min(Max(x, 0.5f), Float(sWidth) - 0.5f);
+								Y = Min(Max(y, 0.5f), Float(sHeight) - 0.5f);
+							}
+
+							Float x0 = X - 0.5f;
+							Float y0 = Y - 0.5f;
 
 							Int X0 = Max(Int(x0), 0);
 							Int Y0 = Max(Int(y0), 0);
@@ -1326,6 +1340,15 @@ namespace sw
 							Float4 c10; if(!read(c10, s10, state)) return nullptr;
 							Float4 c11; if(!read(c11, s11, state)) return nullptr;
 
+							if(state.convertSRGB && Surface::isSRGBformat(state.sourceFormat)) // sRGB -> RGB
+							{
+								if(!ApplyScaleAndClamp(c00, state)) return nullptr;
+								if(!ApplyScaleAndClamp(c01, state)) return nullptr;
+								if(!ApplyScaleAndClamp(c10, state)) return nullptr;
+								if(!ApplyScaleAndClamp(c11, state)) return nullptr;
+								preScaled = true;
+							}
+
 							Float4 fx = Float4(x0 - Float(X0));
 							Float4 fy = Float4(y0 - Float(Y0));
 							Float4 ix = Float4(1.0f) - fx;
@@ -1335,7 +1358,7 @@ namespace sw
 							        (c10 * ix + c11 * fx) * fy;
 						}
 
-						if(!ApplyScaleAndClamp(color, state))
+						if(!ApplyScaleAndClamp(color, state, preScaled))
 						{
 							return nullptr;
 						}
@@ -1379,6 +1402,10 @@ namespace sw
 		}
 
 		State state(options);
+		state.clampToEdge = (sourceRect.x0 < 0.0f) ||
+		                    (sourceRect.y0 < 0.0f) ||
+		                    (sourceRect.x1 > (float)source->getWidth()) ||
+		                    (sourceRect.y1 > (float)source->getHeight());
 
 		bool useSourceInternal = !source->isExternalDirty();
 		bool useDestInternal = !dest->isExternalDirty();

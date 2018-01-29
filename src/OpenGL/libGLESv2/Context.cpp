@@ -1932,8 +1932,8 @@ template<typename T> bool Context::getIntegerv(GLenum pname, T *params) const
 	case GL_ARRAY_BUFFER_BINDING:             *params = getArrayBufferName();                 return true;
 	case GL_ELEMENT_ARRAY_BUFFER_BINDING:     *params = getElementArrayBufferName();          return true;
 //	case GL_FRAMEBUFFER_BINDING:            // now equivalent to GL_DRAW_FRAMEBUFFER_BINDING_ANGLE
-	case GL_DRAW_FRAMEBUFFER_BINDING_ANGLE:   *params = mState.drawFramebuffer;               return true;
-	case GL_READ_FRAMEBUFFER_BINDING_ANGLE:   *params = mState.readFramebuffer;               return true;
+	case GL_DRAW_FRAMEBUFFER_BINDING:         *params = mState.drawFramebuffer;               return true;
+	case GL_READ_FRAMEBUFFER_BINDING:         *params = mState.readFramebuffer;               return true;
 	case GL_RENDERBUFFER_BINDING:             *params = mState.renderbuffer.name();           return true;
 	case GL_CURRENT_PROGRAM:                  *params = mState.currentProgram;                return true;
 	case GL_PACK_ALIGNMENT:                   *params = mState.packAlignment;                 return true;
@@ -1968,7 +1968,7 @@ template<typename T> bool Context::getIntegerv(GLenum pname, T *params) const
 	case GL_MAX_TEXTURE_SIZE:                 *params = IMPLEMENTATION_MAX_TEXTURE_SIZE;          return true;
 	case GL_MAX_CUBE_MAP_TEXTURE_SIZE:        *params = IMPLEMENTATION_MAX_CUBE_MAP_TEXTURE_SIZE; return true;
 	case GL_NUM_COMPRESSED_TEXTURE_FORMATS:   *params = NUM_COMPRESSED_TEXTURE_FORMATS;           return true;
-	case GL_MAX_SAMPLES_ANGLE:                *params = IMPLEMENTATION_MAX_SAMPLES;               return true;
+	case GL_MAX_SAMPLES:                      *params = IMPLEMENTATION_MAX_SAMPLES;               return true;
 	case GL_SAMPLE_BUFFERS:
 	case GL_SAMPLES:
 		{
@@ -2491,8 +2491,8 @@ bool Context::getQueryParameterInfo(GLenum pname, GLenum *type, unsigned int *nu
 	case GL_NUM_SHADER_BINARY_FORMATS:
 	case GL_NUM_COMPRESSED_TEXTURE_FORMATS:
 	case GL_ARRAY_BUFFER_BINDING:
-	case GL_FRAMEBUFFER_BINDING: // Same as GL_DRAW_FRAMEBUFFER_BINDING_ANGLE
-	case GL_READ_FRAMEBUFFER_BINDING_ANGLE:
+	case GL_FRAMEBUFFER_BINDING:        // Same as GL_DRAW_FRAMEBUFFER_BINDING_ANGLE
+	case GL_READ_FRAMEBUFFER_BINDING:   // Same as GL_READ_FRAMEBUFFER_BINDING_ANGLE
 	case GL_RENDERBUFFER_BINDING:
 	case GL_CURRENT_PROGRAM:
 	case GL_PACK_ALIGNMENT:
@@ -2617,7 +2617,7 @@ bool Context::getQueryParameterInfo(GLenum pname, GLenum *type, unsigned int *nu
 			*numParams = 1;
 		}
 		break;
-	case GL_MAX_SAMPLES_ANGLE:
+	case GL_MAX_SAMPLES:
 		{
 			*type = GL_INT;
 			*numParams = 1;
@@ -3074,16 +3074,15 @@ void Context::applyTextures(sw::SamplerType samplerType)
 {
 	Program *programObject = getCurrentProgram();
 
-	const std::map<int, es2::Program::Sampler> &samplerMap = programObject->getSamplerMap(samplerType);
+	int samplerCount = (samplerType == sw::SAMPLER_PIXEL) ? MAX_TEXTURE_IMAGE_UNITS : MAX_VERTEX_TEXTURE_IMAGE_UNITS;   // Range of samplers of given sampler type
 
-	int samplerIndex = 0;
-	for(auto sampler : samplerMap)
+	for(int samplerIndex = 0; samplerIndex < samplerCount; samplerIndex++)
 	{
-		int textureUnit = sampler.second.logicalTextureUnit;
+		int textureUnit = programObject->getSamplerMapping(samplerType, samplerIndex);   // OpenGL texture image unit index
 
 		if(textureUnit != -1)
 		{
-			TextureType textureType = programObject->getSamplerTextureType(samplerType, sampler.first);
+			TextureType textureType = programObject->getSamplerTextureType(samplerType, samplerIndex);
 
 			Texture *texture = getSamplerTexture(textureUnit, textureType);
 
@@ -3154,13 +3153,6 @@ void Context::applyTextures(sw::SamplerType samplerType)
 		{
 			applyTexture(samplerType, samplerIndex, nullptr);
 		}
-		++samplerIndex;
-	}
-
-	int samplerCount = (samplerType == sw::SAMPLER_PIXEL) ? MAX_TEXTURE_IMAGE_UNITS : MAX_VERTEX_TEXTURE_IMAGE_UNITS;
-	for(; samplerIndex < samplerCount; ++samplerIndex)
-	{
-		applyTexture(samplerType, samplerIndex, nullptr);
 	}
 }
 
@@ -3955,7 +3947,7 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
 	sw::SliceRect sourceRect;
 	sw::SliceRect destRect;
 	bool flipX = (srcX0 < srcX1) ^ (dstX0 < dstX1);
-	bool flipy = (srcY0 < srcY1) ^ (dstY0 < dstY1);
+	bool flipY = (srcY0 < srcY1) ^ (dstY0 < dstY1);
 
 	if(srcX0 < srcX1)
 	{
@@ -4001,100 +3993,26 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
 		destRect.y1 = dstY0;
 	}
 
-	sw::Rect sourceScissoredRect = sourceRect;
+	sw::RectF sourceScissoredRect(static_cast<float>(sourceRect.x0), static_cast<float>(sourceRect.y0),
+	                              static_cast<float>(sourceRect.x1), static_cast<float>(sourceRect.y1));
 	sw::Rect destScissoredRect = destRect;
 
 	if(mState.scissorTestEnabled)   // Only write to parts of the destination framebuffer which pass the scissor test
 	{
-		if(destRect.x0 < mState.scissorX)
-		{
-			int xDiff = mState.scissorX - destRect.x0;
-			destScissoredRect.x0 = mState.scissorX;
-			sourceScissoredRect.x0 += xDiff;
-		}
-
-		if(destRect.x1 > mState.scissorX + mState.scissorWidth)
-		{
-			int xDiff = destRect.x1 - (mState.scissorX + mState.scissorWidth);
-			destScissoredRect.x1 = mState.scissorX + mState.scissorWidth;
-			sourceScissoredRect.x1 -= xDiff;
-		}
-
-		if(destRect.y0 < mState.scissorY)
-		{
-			int yDiff = mState.scissorY - destRect.y0;
-			destScissoredRect.y0 = mState.scissorY;
-			sourceScissoredRect.y0 += yDiff;
-		}
-
-		if(destRect.y1 > mState.scissorY + mState.scissorHeight)
-		{
-			int yDiff = destRect.y1 - (mState.scissorY + mState.scissorHeight);
-			destScissoredRect.y1 = mState.scissorY + mState.scissorHeight;
-			sourceScissoredRect.y1 -= yDiff;
-		}
+		sw::Rect scissorRect(mState.scissorX, mState.scissorY, mState.scissorX + mState.scissorWidth, mState.scissorY + mState.scissorHeight);
+		Device::ClipDstRect(sourceScissoredRect, destScissoredRect, scissorRect, flipX, flipY);
 	}
 
-	sw::Rect sourceTrimmedRect = sourceScissoredRect;
-	sw::Rect destTrimmedRect = destScissoredRect;
+	sw::SliceRectF sourceTrimmedRect = sourceScissoredRect;
+	sw::SliceRect destTrimmedRect = destScissoredRect;
 
-	// The source & destination rectangles also may need to be trimmed if they fall out of the bounds of
-	// the actual draw and read surfaces.
-	if(sourceTrimmedRect.x0 < 0)
-	{
-		int xDiff = 0 - sourceTrimmedRect.x0;
-		sourceTrimmedRect.x0 = 0;
-		destTrimmedRect.x0 += xDiff;
-	}
+	// The source & destination rectangles also may need to be trimmed if
+	// they fall out of the bounds of the actual draw and read surfaces.
+	sw::Rect sourceTrimRect(0, 0, readBufferWidth, readBufferHeight);
+	Device::ClipSrcRect(sourceTrimmedRect, destTrimmedRect, sourceTrimRect, flipX, flipY);
 
-	if(sourceTrimmedRect.x1 > readBufferWidth)
-	{
-		int xDiff = sourceTrimmedRect.x1 - readBufferWidth;
-		sourceTrimmedRect.x1 = readBufferWidth;
-		destTrimmedRect.x1 -= xDiff;
-	}
-
-	if(sourceTrimmedRect.y0 < 0)
-	{
-		int yDiff = 0 - sourceTrimmedRect.y0;
-		sourceTrimmedRect.y0 = 0;
-		destTrimmedRect.y0 += yDiff;
-	}
-
-	if(sourceTrimmedRect.y1 > readBufferHeight)
-	{
-		int yDiff = sourceTrimmedRect.y1 - readBufferHeight;
-		sourceTrimmedRect.y1 = readBufferHeight;
-		destTrimmedRect.y1 -= yDiff;
-	}
-
-	if(destTrimmedRect.x0 < 0)
-	{
-		int xDiff = 0 - destTrimmedRect.x0;
-		destTrimmedRect.x0 = 0;
-		sourceTrimmedRect.x0 += xDiff;
-	}
-
-	if(destTrimmedRect.x1 > drawBufferWidth)
-	{
-		int xDiff = destTrimmedRect.x1 - drawBufferWidth;
-		destTrimmedRect.x1 = drawBufferWidth;
-		sourceTrimmedRect.x1 -= xDiff;
-	}
-
-	if(destTrimmedRect.y0 < 0)
-	{
-		int yDiff = 0 - destTrimmedRect.y0;
-		destTrimmedRect.y0 = 0;
-		sourceTrimmedRect.y0 += yDiff;
-	}
-
-	if(destTrimmedRect.y1 > drawBufferHeight)
-	{
-		int yDiff = destTrimmedRect.y1 - drawBufferHeight;
-		destTrimmedRect.y1 = drawBufferHeight;
-		sourceTrimmedRect.y1 -= yDiff;
-	}
+	sw::Rect destTrimRect(0, 0, drawBufferWidth, drawBufferHeight);
+	Device::ClipDstRect(sourceTrimmedRect, destTrimmedRect, destTrimRect, flipX, flipY);
 
 	bool partialBufferCopy = false;
 
@@ -4250,21 +4168,21 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
 
 	if(blitRenderTarget || blitDepth || blitStencil)
 	{
+		if(flipX)
+		{
+			swap(destTrimmedRect.x0, destTrimmedRect.x1);
+		}
+		if(flipY)
+		{
+			swap(destTrimmedRect.y0, destTrimmedRect.y1);
+		}
+
 		if(blitRenderTarget)
 		{
 			egl::Image *readRenderTarget = readFramebuffer->getReadRenderTarget();
 			egl::Image *drawRenderTarget = drawFramebuffer->getRenderTarget(0);
 
-			if(flipX)
-			{
-				swap(destRect.x0, destRect.x1);
-			}
-			if(flipy)
-			{
-				swap(destRect.y0, destRect.y1);
-			}
-
-			bool success = device->stretchRect(readRenderTarget, &sourceRect, drawRenderTarget, &destRect, (filter ? Device::USE_FILTER : 0) | Device::COLOR_BUFFER);
+			bool success = device->stretchRect(readRenderTarget, &sourceTrimmedRect, drawRenderTarget, &destTrimmedRect, (filter ? Device::USE_FILTER : 0) | Device::COLOR_BUFFER);
 
 			readRenderTarget->release();
 			drawRenderTarget->release();
@@ -4281,7 +4199,7 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
 			egl::Image *readRenderTarget = readFramebuffer->getDepthBuffer();
 			egl::Image *drawRenderTarget = drawFramebuffer->getDepthBuffer();
 
-			bool success = device->stretchRect(readRenderTarget, &sourceRect, drawRenderTarget, &destRect, (filter ? Device::USE_FILTER : 0) | Device::DEPTH_BUFFER);
+			bool success = device->stretchRect(readRenderTarget, &sourceTrimmedRect, drawRenderTarget, &destTrimmedRect, (filter ? Device::USE_FILTER : 0) | Device::DEPTH_BUFFER);
 
 			readRenderTarget->release();
 			drawRenderTarget->release();
@@ -4298,7 +4216,7 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
 			egl::Image *readRenderTarget = readFramebuffer->getStencilBuffer();
 			egl::Image *drawRenderTarget = drawFramebuffer->getStencilBuffer();
 
-			bool success = device->stretchRect(readRenderTarget, &sourceRect, drawRenderTarget, &destRect, (filter ? Device::USE_FILTER : 0) | Device::STENCIL_BUFFER);
+			bool success = device->stretchRect(readRenderTarget, &sourceTrimmedRect, drawRenderTarget, &destTrimmedRect, (filter ? Device::USE_FILTER : 0) | Device::STENCIL_BUFFER);
 
 			readRenderTarget->release();
 			drawRenderTarget->release();
@@ -4486,6 +4404,7 @@ const GLubyte *Context::getExtensions(GLuint index, GLuint *numExt) const
 		"GL_ANGLE_texture_compression_dxt3",
 		"GL_ANGLE_texture_compression_dxt5",
 #endif
+		//"GL_APPLE_texture_format_BGRA8888",
 		"GL_CHROMIUM_texture_filtering_hint",
 		"GL_NV_fence",
 		"GL_NV_framebuffer_blit",

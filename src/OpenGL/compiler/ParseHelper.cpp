@@ -1018,7 +1018,7 @@ bool TParseContext::declareVariable(const TSourceLoc &line, const TString &ident
 		return false;
 
 	(*variable) = new TVariable(&identifier, type);
-	if(!symbolTable.declare(**variable))
+	if(!symbolTable.declare(*variable))
 	{
 		error(line, "redefinition", identifier.c_str());
 		delete (*variable);
@@ -1186,7 +1186,7 @@ const TVariable *TParseContext::getNamedVariable(const TSourceLoc &location,
 	{
 		TType type(EbtFloat, EbpUndefined);
 		TVariable *fakeVariable = new TVariable(name, type);
-		symbolTable.declare(*fakeVariable);
+		symbolTable.declare(fakeVariable);
 		variable = fakeVariable;
 	}
 
@@ -1203,11 +1203,11 @@ const TFunction* TParseContext::findFunction(const TSourceLoc &line, TFunction* 
 	// First find by unmangled name to check whether the function name has been
 	// hidden by a variable name or struct typename.
 	const TSymbol* symbol = symbolTable.find(call->getName(), mShaderVersion, builtIn);
-	if (symbol == 0) {
+	if (!symbol || symbol->isFunction()) {
 		symbol = symbolTable.find(call->getMangledName(), mShaderVersion, builtIn);
 	}
 
-	if (symbol == 0) {
+	if (!symbol) {
 		error(line, "no matching overloaded function found", call->getName().c_str());
 		return nullptr;
 	}
@@ -1297,15 +1297,21 @@ bool TParseContext::executeInitializer(const TSourceLoc& line, const TString& id
 		}
 	}
 
-	if (!variable->isConstant()) {
+	// Constants which aren't indexable arrays get propagated by value
+	// and thus don't need to initialize the symbol.
+	if (variable->isConstant() && !(type.isArray() && type.getArraySize() > 1))
+	{
+		*intermNode = nullptr;
+	}
+	else
+	{
 		TIntermSymbol* intermSymbol = intermediate.addSymbol(variable->getUniqueId(), variable->getName(), variable->getType(), line);
 		*intermNode = createAssign(EOpInitialize, intermSymbol, initializer, line);
 		if(*intermNode == nullptr) {
 			assignError(line, "=", intermSymbol->getCompleteString(), initializer->getCompleteString());
 			return true;
 		}
-	} else
-		*intermNode = nullptr;
+	}
 
 	return false;
 }
@@ -1959,7 +1965,7 @@ void TParseContext::parseFunctionPrototype(const TSourceLoc &location, TFunction
 			//
 			// Insert the parameters with name in the symbol table.
 			//
-			if(!symbolTable.declare(*variable))
+			if(!symbolTable.declare(variable))
 			{
 				error(location, "redefinition", variable->getName().c_str());
 				recover();
@@ -2035,10 +2041,16 @@ TFunction *TParseContext::parseFunctionDeclarator(const TSourceLoc &location, TF
 			recover();
 		}
 	}
+	else
+	{
+		// Insert the unmangled name to detect potential future redefinition as a variable.
+		TFunction *unmangledFunction = new TFunction(NewPoolTString(function->getName().c_str()), function->getReturnType());
+		symbolTable.getOuterLevel()->insertUnmangled(unmangledFunction);
+	}
 
 	// We're at the inner scope level of the function's arguments and body statement.
 	// Add the function prototype to the surrounding scope instead.
-	symbolTable.getOuterLevel()->insert(*function);
+	symbolTable.getOuterLevel()->insert(function);
 
 	//
 	// If this is a redeclaration, it could also be a definition, in which case, we want to use the
@@ -2338,7 +2350,7 @@ TIntermAggregate* TParseContext::addInterfaceBlock(const TPublicType& typeQualif
 	}
 
 	TSymbol* blockNameSymbol = new TSymbol(&blockName);
-	if(!symbolTable.declare(*blockNameSymbol)) {
+	if(!symbolTable.declare(blockNameSymbol)) {
 		error(nameLine, "redefinition", blockName.c_str(), "interface block name");
 		recover();
 	}
@@ -2417,7 +2429,7 @@ TIntermAggregate* TParseContext::addInterfaceBlock(const TPublicType& typeQualif
 			TVariable* fieldVariable = new TVariable(&field->name(), *fieldType);
 			fieldVariable->setQualifier(typeQualifier.qualifier);
 
-			if(!symbolTable.declare(*fieldVariable)) {
+			if(!symbolTable.declare(fieldVariable)) {
 				error(field->line(), "redefinition", field->name().c_str(), "interface block member name");
 				recover();
 			}
@@ -2425,11 +2437,14 @@ TIntermAggregate* TParseContext::addInterfaceBlock(const TPublicType& typeQualif
 	}
 	else
 	{
+		if(reservedErrorCheck(nameLine, *instanceName))
+			recover();
+
 		// add a symbol for this interface block
 		TVariable* instanceTypeDef = new TVariable(instanceName, interfaceBlockType, false);
 		instanceTypeDef->setQualifier(typeQualifier.qualifier);
 
-		if(!symbolTable.declare(*instanceTypeDef)) {
+		if(!symbolTable.declare(instanceTypeDef)) {
 			error(instanceLine, "redefinition", instanceName->c_str(), "interface block instance name");
 			recover();
 		}
@@ -2468,7 +2483,7 @@ TIntermTyped *TParseContext::addIndexExpression(TIntermTyped *baseExpression, co
 
 	TIntermConstantUnion *indexConstantUnion = indexExpression->getAsConstantUnion();
 
-	if(indexExpression->getQualifier() == EvqConstExpr && indexConstantUnion)
+	if(indexExpression->getQualifier() == EvqConstExpr && indexConstantUnion)   // TODO: Qualifier check redundant?
 	{
 		int index = indexConstantUnion->getIConst(0);
 		if(index < 0)
@@ -2480,7 +2495,7 @@ TIntermTyped *TParseContext::addIndexExpression(TIntermTyped *baseExpression, co
 			recover();
 			index = 0;
 		}
-		if(baseExpression->getType().getQualifier() == EvqConstExpr)
+		if(baseExpression->getType().getQualifier() == EvqConstExpr && baseExpression->getAsConstantUnion())   // TODO: Qualifier check redundant?
 		{
 			if(baseExpression->isArray())
 			{
@@ -2963,7 +2978,7 @@ TPublicType TParseContext::addStructure(const TSourceLoc &structLine, const TSou
 			recover();
 		}
 		TVariable *userTypeDef = new TVariable(structName, *structureType, true);
-		if(!symbolTable.declare(*userTypeDef))
+		if(!symbolTable.declare(userTypeDef))
 		{
 			error(nameLine, "redefinition", structName->c_str(), "struct");
 			recover();
@@ -3530,18 +3545,6 @@ TIntermTyped *TParseContext::addFunctionCallOrMethod(TFunction *fnCall, TIntermN
 		else
 		{
 			arraySize = typedThis->getArraySize();
-			if(typedThis->getAsSymbolNode() == nullptr)
-			{
-				// This code path can be hit with expressions like these:
-				// (a = b).length()
-				// (func()).length()
-				// (int[3](0, 1, 2)).length()
-				// ESSL 3.00 section 5.9 defines expressions so that this is not actually a valid expression.
-				// It allows "An array name with the length method applied" in contrast to GLSL 4.4 spec section 5.9
-				// which allows "An array, vector or matrix expression with the length method applied".
-				error(loc, "length can only be called on array names, not on array expressions", "length");
-				recover();
-			}
 		}
 		unionArray->setIConst(arraySize);
 		callNode = intermediate.addConstantUnion(unionArray, TType(EbtInt, EbpUndefined, EvqConstExpr), loc);

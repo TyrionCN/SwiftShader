@@ -34,6 +34,7 @@
 #include <GLES2/gl2ext.h>
 #include <GLES3/gl3.h>
 
+#include <algorithm>
 #include <limits>
 
 #ifdef __ANDROID__
@@ -308,7 +309,7 @@ void BindFramebuffer(GLenum target, GLuint framebuffer)
 {
 	TRACE("(GLenum target = 0x%X, GLuint framebuffer = %d)", target, framebuffer);
 
-	if(target != GL_FRAMEBUFFER && target != GL_DRAW_FRAMEBUFFER_ANGLE && target != GL_READ_FRAMEBUFFER_ANGLE)
+	if(target != GL_FRAMEBUFFER && target != GL_DRAW_FRAMEBUFFER && target != GL_READ_FRAMEBUFFER)
 	{
 		return error(GL_INVALID_ENUM);
 	}
@@ -317,12 +318,12 @@ void BindFramebuffer(GLenum target, GLuint framebuffer)
 
 	if(context)
 	{
-		if(target == GL_READ_FRAMEBUFFER_ANGLE || target == GL_FRAMEBUFFER)
+		if(target == GL_READ_FRAMEBUFFER || target == GL_FRAMEBUFFER)
 		{
 			context->bindReadFramebuffer(framebuffer);
 		}
 
-		if(target == GL_DRAW_FRAMEBUFFER_ANGLE || target == GL_FRAMEBUFFER)
+		if(target == GL_DRAW_FRAMEBUFFER || target == GL_FRAMEBUFFER)
 		{
 			context->bindDrawFramebuffer(framebuffer);
 		}
@@ -669,7 +670,7 @@ GLenum CheckFramebufferStatus(GLenum target)
 {
 	TRACE("(GLenum target = 0x%X)", target);
 
-	if(target != GL_FRAMEBUFFER && target != GL_DRAW_FRAMEBUFFER_ANGLE && target != GL_READ_FRAMEBUFFER_ANGLE)
+	if(target != GL_FRAMEBUFFER && target != GL_DRAW_FRAMEBUFFER && target != GL_READ_FRAMEBUFFER)
 	{
 		return error(GL_INVALID_ENUM, 0);
 	}
@@ -679,7 +680,7 @@ GLenum CheckFramebufferStatus(GLenum target)
 	if(context)
 	{
 		es2::Framebuffer *framebuffer = nullptr;
-		if(target == GL_READ_FRAMEBUFFER_ANGLE)
+		if(target == GL_READ_FRAMEBUFFER)
 		{
 			framebuffer = context->getReadFramebuffer();
 		}
@@ -1957,7 +1958,7 @@ void FramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbuff
 	TRACE("(GLenum target = 0x%X, GLenum attachment = 0x%X, GLenum renderbuffertarget = 0x%X, "
 	      "GLuint renderbuffer = %d)", target, attachment, renderbuffertarget, renderbuffer);
 
-	if((target != GL_FRAMEBUFFER && target != GL_DRAW_FRAMEBUFFER_ANGLE && target != GL_READ_FRAMEBUFFER_ANGLE) ||
+	if((target != GL_FRAMEBUFFER && target != GL_DRAW_FRAMEBUFFER && target != GL_READ_FRAMEBUFFER) ||
 	   (renderbuffertarget != GL_RENDERBUFFER && renderbuffer != 0))
 	{
 		return error(GL_INVALID_ENUM);
@@ -1969,7 +1970,7 @@ void FramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbuff
 	{
 		es2::Framebuffer *framebuffer = nullptr;
 		GLuint framebufferName = 0;
-		if(target == GL_READ_FRAMEBUFFER_ANGLE)
+		if(target == GL_READ_FRAMEBUFFER)
 		{
 			framebuffer = context->getReadFramebuffer();
 			framebufferName = context->getReadFramebufferName();
@@ -2064,7 +2065,7 @@ void FramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, GL
 	TRACE("(GLenum target = 0x%X, GLenum attachment = 0x%X, GLenum textarget = 0x%X, "
 	      "GLuint texture = %d, GLint level = %d)", target, attachment, textarget, texture, level);
 
-	if(target != GL_FRAMEBUFFER && target != GL_DRAW_FRAMEBUFFER_ANGLE && target != GL_READ_FRAMEBUFFER_ANGLE)
+	if(target != GL_FRAMEBUFFER && target != GL_DRAW_FRAMEBUFFER && target != GL_READ_FRAMEBUFFER)
 	{
 		return error(GL_INVALID_ENUM);
 	}
@@ -2129,7 +2130,7 @@ void FramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, GL
 
 		es2::Framebuffer *framebuffer = nullptr;
 		GLuint framebufferName = 0;
-		if(target == GL_READ_FRAMEBUFFER_ANGLE)
+		if(target == GL_READ_FRAMEBUFFER)
 		{
 			framebuffer = context->getReadFramebuffer();
 			framebufferName = context->getReadFramebufferName();
@@ -5085,7 +5086,7 @@ void TexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width,
 				return error(GL_INVALID_OPERATION);
 			}
 
-			texture->setImage(context, level, width, height, sizedInternalFormat, type, context->getUnpackInfo(), data);
+			texture->setImage(context, level, width, height, sizedInternalFormat, format, type, context->getUnpackInfo(), data);
 		}
 		else
 		{
@@ -5096,7 +5097,7 @@ void TexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width,
 				return error(GL_INVALID_OPERATION);
 			}
 
-			texture->setImage(context, target, level, width, height, sizedInternalFormat, type, context->getUnpackInfo(), data);
+			texture->setImage(context, target, level, width, height, sizedInternalFormat, format, type, context->getUnpackInfo(), data);
 		}
 	}
 }
@@ -6308,7 +6309,7 @@ void TexImage3DOES(GLenum target, GLint level, GLenum internalformat, GLsizei wi
 			return error(validationError);
 		}
 
-		texture->setImage(context, level, width, height, depth, sizedInternalFormat, type, context->getUnpackInfo(), data);
+		texture->setImage(context, level, width, height, depth, sizedInternalFormat, format, type, context->getUnpackInfo(), data);
 	}
 }
 
@@ -6545,7 +6546,7 @@ void FramebufferTexture3DOES(GLenum target, GLenum attachment, GLenum textarget,
 	TRACE("(GLenum target = 0x%X, GLenum attachment = 0x%X, GLenum textarget = 0x%X, "
 	      "GLuint texture = %d, GLint level = %d, GLint zoffset = %d)", target, attachment, textarget, texture, level, zoffset);
 
-	if(target != GL_FRAMEBUFFER && target != GL_DRAW_FRAMEBUFFER_ANGLE && target != GL_READ_FRAMEBUFFER_ANGLE)
+	if(target != GL_FRAMEBUFFER && target != GL_DRAW_FRAMEBUFFER && target != GL_READ_FRAMEBUFFER)
 	{
 		return error(GL_INVALID_ENUM);
 	}
@@ -6592,7 +6593,7 @@ void FramebufferTexture3DOES(GLenum target, GLenum attachment, GLenum textarget,
 
 		es2::Framebuffer *framebuffer = nullptr;
 		GLuint framebufferName = 0;
-		if(target == GL_READ_FRAMEBUFFER_ANGLE)
+		if(target == GL_READ_FRAMEBUFFER)
 		{
 			framebuffer = context->getReadFramebuffer();
 			framebufferName = context->getReadFramebufferName();
@@ -6872,71 +6873,327 @@ void DrawBuffersEXT(GLsizei n, const GLenum *bufs)
 
 extern "C" NO_SANITIZE_FUNCTION __eglMustCastToProperFunctionPointerType es2GetProcAddress(const char *procname)
 {
-	struct Extension
+	struct Function
 	{
 		const char *name;
 		__eglMustCastToProperFunctionPointerType address;
 	};
 
-	static const Extension glExtensions[] =
+	struct CompareFunctor
 	{
-		#define EXTENSION(name) {#name, (__eglMustCastToProperFunctionPointerType)name}
-
-		EXTENSION(glTexImage3DOES),
-		EXTENSION(glBlitFramebufferANGLE),
-		EXTENSION(glBlitFramebufferNV),
-		EXTENSION(glRenderbufferStorageMultisampleANGLE),
-		EXTENSION(glDeleteFencesNV),
-		EXTENSION(glGenFencesNV),
-		EXTENSION(glIsFenceNV),
-		EXTENSION(glTestFenceNV),
-		EXTENSION(glGetFenceivNV),
-		EXTENSION(glFinishFenceNV),
-		EXTENSION(glSetFenceNV),
-		EXTENSION(glGetGraphicsResetStatusEXT),
-		EXTENSION(glReadnPixelsEXT),
-		EXTENSION(glGetnUniformfvEXT),
-		EXTENSION(glGetnUniformivEXT),
-		EXTENSION(glGenQueriesEXT),
-		EXTENSION(glDeleteQueriesEXT),
-		EXTENSION(glIsQueryEXT),
-		EXTENSION(glBeginQueryEXT),
-		EXTENSION(glEndQueryEXT),
-		EXTENSION(glGetQueryivEXT),
-		EXTENSION(glGetQueryObjectuivEXT),
-		EXTENSION(glEGLImageTargetTexture2DOES),
-		EXTENSION(glEGLImageTargetRenderbufferStorageOES),
-		EXTENSION(glDrawElementsInstancedEXT),
-		EXTENSION(glDrawArraysInstancedEXT),
-		EXTENSION(glVertexAttribDivisorEXT),
-		EXTENSION(glDrawArraysInstancedANGLE),
-		EXTENSION(glDrawElementsInstancedANGLE),
-		EXTENSION(glVertexAttribDivisorANGLE),
-		EXTENSION(glIsRenderbufferOES),
-		EXTENSION(glBindRenderbufferOES),
-		EXTENSION(glDeleteRenderbuffersOES),
-		EXTENSION(glGenRenderbuffersOES),
-		EXTENSION(glRenderbufferStorageOES),
-		EXTENSION(glGetRenderbufferParameterivOES),
-		EXTENSION(glIsFramebufferOES),
-		EXTENSION(glBindFramebufferOES),
-		EXTENSION(glDeleteFramebuffersOES),
-		EXTENSION(glGenFramebuffersOES),
-		EXTENSION(glCheckFramebufferStatusOES),
-		EXTENSION(glFramebufferRenderbufferOES),
-		EXTENSION(glFramebufferTexture2DOES),
-		EXTENSION(glGetFramebufferAttachmentParameterivOES),
-		EXTENSION(glGenerateMipmapOES),
-		EXTENSION(glDrawBuffersEXT),
-
-		#undef EXTENSION
+		bool operator()(const Function &a, const Function &b) const
+		{
+			return strcmp(a.name, b.name) < 0;
+		}
 	};
 
-	for(unsigned int ext = 0; ext < sizeof(glExtensions) / sizeof(Extension); ext++)
+	// This array must be kept sorted with respect to strcmp(), so that binary search works correctly.
+	// The Unix command "LC_COLLATE=C sort" will generate the correct order.
+	static const Function glFunctions[] =
 	{
-		if(strcmp(procname, glExtensions[ext].name) == 0)
+		#define FUNCTION(name) {#name, (__eglMustCastToProperFunctionPointerType)name}
+
+		FUNCTION(glActiveTexture),
+		FUNCTION(glAttachShader),
+		FUNCTION(glBeginQuery),
+		FUNCTION(glBeginQueryEXT),
+		FUNCTION(glBeginTransformFeedback),
+		FUNCTION(glBindAttribLocation),
+		FUNCTION(glBindBuffer),
+		FUNCTION(glBindBufferBase),
+		FUNCTION(glBindBufferRange),
+		FUNCTION(glBindFramebuffer),
+		FUNCTION(glBindFramebufferOES),
+		FUNCTION(glBindRenderbuffer),
+		FUNCTION(glBindRenderbufferOES),
+		FUNCTION(glBindSampler),
+		FUNCTION(glBindTexture),
+		FUNCTION(glBindTransformFeedback),
+		FUNCTION(glBindVertexArray),
+		FUNCTION(glBlendColor),
+		FUNCTION(glBlendEquation),
+		FUNCTION(glBlendEquationSeparate),
+		FUNCTION(glBlendFunc),
+		FUNCTION(glBlendFuncSeparate),
+		FUNCTION(glBlitFramebuffer),
+		FUNCTION(glBlitFramebufferANGLE),
+		FUNCTION(glBufferData),
+		FUNCTION(glBufferSubData),
+		FUNCTION(glCheckFramebufferStatus),
+		FUNCTION(glCheckFramebufferStatusOES),
+		FUNCTION(glClear),
+		FUNCTION(glClearBufferfi),
+		FUNCTION(glClearBufferfv),
+		FUNCTION(glClearBufferiv),
+		FUNCTION(glClearBufferuiv),
+		FUNCTION(glClearColor),
+		FUNCTION(glClearDepthf),
+		FUNCTION(glClearStencil),
+		FUNCTION(glClientWaitSync),
+		FUNCTION(glColorMask),
+		FUNCTION(glCompileShader),
+		FUNCTION(glCompressedTexImage2D),
+		FUNCTION(glCompressedTexImage3D),
+		FUNCTION(glCompressedTexSubImage2D),
+		FUNCTION(glCompressedTexSubImage3D),
+		FUNCTION(glCopyBufferSubData),
+		FUNCTION(glCopyTexImage2D),
+		FUNCTION(glCopyTexSubImage2D),
+		FUNCTION(glCopyTexSubImage3D),
+		FUNCTION(glCreateProgram),
+		FUNCTION(glCreateShader),
+		FUNCTION(glCullFace),
+		FUNCTION(glDeleteBuffers),
+		FUNCTION(glDeleteFencesNV),
+		FUNCTION(glDeleteFramebuffers),
+		FUNCTION(glDeleteFramebuffersOES),
+		FUNCTION(glDeleteProgram),
+		FUNCTION(glDeleteQueries),
+		FUNCTION(glDeleteQueriesEXT),
+		FUNCTION(glDeleteRenderbuffers),
+		FUNCTION(glDeleteRenderbuffersOES),
+		FUNCTION(glDeleteSamplers),
+		FUNCTION(glDeleteShader),
+		FUNCTION(glDeleteSync),
+		FUNCTION(glDeleteTextures),
+		FUNCTION(glDeleteTransformFeedbacks),
+		FUNCTION(glDeleteVertexArrays),
+		FUNCTION(glDepthFunc),
+		FUNCTION(glDepthMask),
+		FUNCTION(glDepthRangef),
+		FUNCTION(glDetachShader),
+		FUNCTION(glDisable),
+		FUNCTION(glDisableVertexAttribArray),
+		FUNCTION(glDrawArrays),
+		FUNCTION(glDrawArraysInstanced),
+		FUNCTION(glDrawBuffers),
+		FUNCTION(glDrawBuffersEXT),
+		FUNCTION(glDrawElements),
+		FUNCTION(glDrawElementsInstanced),
+		FUNCTION(glDrawRangeElements),
+		FUNCTION(glEGLImageTargetRenderbufferStorageOES),
+		FUNCTION(glEGLImageTargetTexture2DOES),
+		FUNCTION(glEnable),
+		FUNCTION(glEnableVertexAttribArray),
+		FUNCTION(glEndQuery),
+		FUNCTION(glEndQueryEXT),
+		FUNCTION(glEndTransformFeedback),
+		FUNCTION(glFenceSync),
+		FUNCTION(glFinish),
+		FUNCTION(glFinishFenceNV),
+		FUNCTION(glFlush),
+		FUNCTION(glFlushMappedBufferRange),
+		FUNCTION(glFramebufferRenderbuffer),
+		FUNCTION(glFramebufferRenderbufferOES),
+		FUNCTION(glFramebufferTexture2D),
+		FUNCTION(glFramebufferTexture2DOES),
+		FUNCTION(glFramebufferTextureLayer),
+		FUNCTION(glFrontFace),
+		FUNCTION(glGenBuffers),
+		FUNCTION(glGenFencesNV),
+		FUNCTION(glGenFramebuffers),
+		FUNCTION(glGenFramebuffersOES),
+		FUNCTION(glGenQueries),
+		FUNCTION(glGenQueriesEXT),
+		FUNCTION(glGenRenderbuffers),
+		FUNCTION(glGenRenderbuffersOES),
+		FUNCTION(glGenSamplers),
+		FUNCTION(glGenTextures),
+		FUNCTION(glGenTransformFeedbacks),
+		FUNCTION(glGenVertexArrays),
+		FUNCTION(glGenerateMipmap),
+		FUNCTION(glGenerateMipmapOES),
+		FUNCTION(glGetActiveAttrib),
+		FUNCTION(glGetActiveUniform),
+		FUNCTION(glGetActiveUniformBlockName),
+		FUNCTION(glGetActiveUniformBlockiv),
+		FUNCTION(glGetActiveUniformsiv),
+		FUNCTION(glGetAttachedShaders),
+		FUNCTION(glGetAttribLocation),
+		FUNCTION(glGetBooleanv),
+		FUNCTION(glGetBufferParameteri64v),
+		FUNCTION(glGetBufferParameteriv),
+		FUNCTION(glGetBufferPointerv),
+		FUNCTION(glGetError),
+		FUNCTION(glGetFenceivNV),
+		FUNCTION(glGetFloatv),
+		FUNCTION(glGetFragDataLocation),
+		FUNCTION(glGetFramebufferAttachmentParameteriv),
+		FUNCTION(glGetFramebufferAttachmentParameterivOES),
+		FUNCTION(glGetGraphicsResetStatusEXT),
+		FUNCTION(glGetInteger64i_v),
+		FUNCTION(glGetInteger64v),
+		FUNCTION(glGetIntegeri_v),
+		FUNCTION(glGetIntegerv),
+		FUNCTION(glGetInternalformativ),
+		FUNCTION(glGetProgramBinary),
+		FUNCTION(glGetProgramInfoLog),
+		FUNCTION(glGetProgramiv),
+		FUNCTION(glGetQueryObjectuiv),
+		FUNCTION(glGetQueryObjectuivEXT),
+		FUNCTION(glGetQueryiv),
+		FUNCTION(glGetQueryivEXT),
+		FUNCTION(glGetRenderbufferParameteriv),
+		FUNCTION(glGetRenderbufferParameterivOES),
+		FUNCTION(glGetSamplerParameterfv),
+		FUNCTION(glGetSamplerParameteriv),
+		FUNCTION(glGetShaderInfoLog),
+		FUNCTION(glGetShaderPrecisionFormat),
+		FUNCTION(glGetShaderSource),
+		FUNCTION(glGetShaderiv),
+		FUNCTION(glGetString),
+		FUNCTION(glGetStringi),
+		FUNCTION(glGetSynciv),
+		FUNCTION(glGetTexParameterfv),
+		FUNCTION(glGetTexParameteriv),
+		FUNCTION(glGetTransformFeedbackVarying),
+		FUNCTION(glGetUniformBlockIndex),
+		FUNCTION(glGetUniformIndices),
+		FUNCTION(glGetUniformLocation),
+		FUNCTION(glGetUniformfv),
+		FUNCTION(glGetUniformiv),
+		FUNCTION(glGetUniformuiv),
+		FUNCTION(glGetVertexAttribIiv),
+		FUNCTION(glGetVertexAttribIuiv),
+		FUNCTION(glGetVertexAttribPointerv),
+		FUNCTION(glGetVertexAttribfv),
+		FUNCTION(glGetVertexAttribiv),
+		FUNCTION(glGetnUniformfvEXT),
+		FUNCTION(glGetnUniformivEXT),
+		FUNCTION(glHint),
+		FUNCTION(glInvalidateFramebuffer),
+		FUNCTION(glInvalidateSubFramebuffer),
+		FUNCTION(glIsBuffer),
+		FUNCTION(glIsEnabled),
+		FUNCTION(glIsFenceNV),
+		FUNCTION(glIsFramebuffer),
+		FUNCTION(glIsFramebufferOES),
+		FUNCTION(glIsProgram),
+		FUNCTION(glIsQuery),
+		FUNCTION(glIsQueryEXT),
+		FUNCTION(glIsRenderbuffer),
+		FUNCTION(glIsRenderbufferOES),
+		FUNCTION(glIsSampler),
+		FUNCTION(glIsShader),
+		FUNCTION(glIsSync),
+		FUNCTION(glIsTexture),
+		FUNCTION(glIsTransformFeedback),
+		FUNCTION(glIsVertexArray),
+		FUNCTION(glLineWidth),
+		FUNCTION(glLinkProgram),
+		FUNCTION(glMapBufferRange),
+		FUNCTION(glPauseTransformFeedback),
+		FUNCTION(glPixelStorei),
+		FUNCTION(glPolygonOffset),
+		FUNCTION(glProgramBinary),
+		FUNCTION(glProgramParameteri),
+		FUNCTION(glReadBuffer),
+		FUNCTION(glReadPixels),
+		FUNCTION(glReadnPixelsEXT),
+		FUNCTION(glReleaseShaderCompiler),
+		FUNCTION(glRenderbufferStorage),
+		FUNCTION(glRenderbufferStorageMultisample),
+		FUNCTION(glRenderbufferStorageMultisampleANGLE),
+		FUNCTION(glRenderbufferStorageOES),
+		FUNCTION(glResumeTransformFeedback),
+		FUNCTION(glSampleCoverage),
+		FUNCTION(glSamplerParameterf),
+		FUNCTION(glSamplerParameterfv),
+		FUNCTION(glSamplerParameteri),
+		FUNCTION(glSamplerParameteriv),
+		FUNCTION(glScissor),
+		FUNCTION(glSetFenceNV),
+		FUNCTION(glShaderBinary),
+		FUNCTION(glShaderSource),
+		FUNCTION(glStencilFunc),
+		FUNCTION(glStencilFuncSeparate),
+		FUNCTION(glStencilMask),
+		FUNCTION(glStencilMaskSeparate),
+		FUNCTION(glStencilOp),
+		FUNCTION(glStencilOpSeparate),
+		FUNCTION(glTestFenceNV),
+		FUNCTION(glTexImage2D),
+		FUNCTION(glTexImage3D),
+		FUNCTION(glTexImage3DOES),
+		FUNCTION(glTexParameterf),
+		FUNCTION(glTexParameterfv),
+		FUNCTION(glTexParameteri),
+		FUNCTION(glTexParameteriv),
+		FUNCTION(glTexStorage2D),
+		FUNCTION(glTexStorage3D),
+		FUNCTION(glTexSubImage2D),
+		FUNCTION(glTexSubImage3D),
+		FUNCTION(glTransformFeedbackVaryings),
+		FUNCTION(glUniform1f),
+		FUNCTION(glUniform1fv),
+		FUNCTION(glUniform1i),
+		FUNCTION(glUniform1iv),
+		FUNCTION(glUniform1ui),
+		FUNCTION(glUniform1uiv),
+		FUNCTION(glUniform2f),
+		FUNCTION(glUniform2fv),
+		FUNCTION(glUniform2i),
+		FUNCTION(glUniform2iv),
+		FUNCTION(glUniform2ui),
+		FUNCTION(glUniform2uiv),
+		FUNCTION(glUniform3f),
+		FUNCTION(glUniform3fv),
+		FUNCTION(glUniform3i),
+		FUNCTION(glUniform3iv),
+		FUNCTION(glUniform3ui),
+		FUNCTION(glUniform3uiv),
+		FUNCTION(glUniform4f),
+		FUNCTION(glUniform4fv),
+		FUNCTION(glUniform4i),
+		FUNCTION(glUniform4iv),
+		FUNCTION(glUniform4ui),
+		FUNCTION(glUniform4uiv),
+		FUNCTION(glUniformBlockBinding),
+		FUNCTION(glUniformMatrix2fv),
+		FUNCTION(glUniformMatrix2x3fv),
+		FUNCTION(glUniformMatrix2x4fv),
+		FUNCTION(glUniformMatrix3fv),
+		FUNCTION(glUniformMatrix3x2fv),
+		FUNCTION(glUniformMatrix3x4fv),
+		FUNCTION(glUniformMatrix4fv),
+		FUNCTION(glUniformMatrix4x2fv),
+		FUNCTION(glUniformMatrix4x3fv),
+		FUNCTION(glUnmapBuffer),
+		FUNCTION(glUseProgram),
+		FUNCTION(glValidateProgram),
+		FUNCTION(glVertexAttrib1f),
+		FUNCTION(glVertexAttrib1fv),
+		FUNCTION(glVertexAttrib2f),
+		FUNCTION(glVertexAttrib2fv),
+		FUNCTION(glVertexAttrib3f),
+		FUNCTION(glVertexAttrib3fv),
+		FUNCTION(glVertexAttrib4f),
+		FUNCTION(glVertexAttrib4fv),
+		FUNCTION(glVertexAttribDivisor),
+		FUNCTION(glVertexAttribI4i),
+		FUNCTION(glVertexAttribI4iv),
+		FUNCTION(glVertexAttribI4ui),
+		FUNCTION(glVertexAttribI4uiv),
+		FUNCTION(glVertexAttribIPointer),
+		FUNCTION(glVertexAttribPointer),
+		FUNCTION(glViewport),
+		FUNCTION(glWaitSync),
+
+		#undef FUNCTION
+	};
+
+	static const size_t numFunctions = sizeof glFunctions / sizeof(Function);
+	static const Function *const glFunctionsEnd = glFunctions + numFunctions;
+
+	Function needle;
+	needle.name = procname;
+
+	if(procname && strncmp("gl", procname, 2) == 0)
+	{
+		const Function *result = std::lower_bound(glFunctions, glFunctionsEnd, needle, CompareFunctor());
+		if(result != glFunctionsEnd && strcmp(procname, result->name) == 0)
 		{
-			return (__eglMustCastToProperFunctionPointerType)glExtensions[ext].address;
+			return (__eglMustCastToProperFunctionPointerType)result->address;
 		}
 	}
 
