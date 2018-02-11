@@ -142,6 +142,7 @@ Context::Context(egl::Display *display, const Context *shareContext, EGLint clie
 	mTexture3DZero = new Texture3D(0);
 	mTexture2DArrayZero = new Texture2DArray(0);
 	mTextureCubeMapZero = new TextureCubeMap(0);
+	mTexture2DRectZero = new Texture2DRect(0);
 	mTextureExternalZero = new TextureExternal(0);
 
 	mState.activeSampler = 0;
@@ -157,19 +158,6 @@ Context::Context(egl::Display *display, const Context *shareContext, EGLint clie
 	bindTransformFeedback(0);
 
 	mState.currentProgram = 0;
-
-	mState.packAlignment = 4;
-	mState.unpackInfo.alignment = 4;
-	mState.packRowLength = 0;
-	mState.packImageHeight = 0;
-	mState.packSkipPixels = 0;
-	mState.packSkipRows = 0;
-	mState.packSkipImages = 0;
-	mState.unpackInfo.rowLength = 0;
-	mState.unpackInfo.imageHeight = 0;
-	mState.unpackInfo.skipPixels = 0;
-	mState.unpackInfo.skipRows = 0;
-	mState.unpackInfo.skipImages = 0;
 
 	mVertexDataManager = nullptr;
 	mIndexDataManager = nullptr;
@@ -262,6 +250,7 @@ Context::~Context()
 	mTexture3DZero = nullptr;
 	mTexture2DArrayZero = nullptr;
 	mTextureCubeMapZero = nullptr;
+	mTexture2DRectZero = nullptr;
 	mTextureExternalZero = nullptr;
 
 	delete mVertexDataManager;
@@ -845,67 +834,57 @@ const VertexAttributeArray &Context::getCurrentVertexAttributes()
 
 void Context::setPackAlignment(GLint alignment)
 {
-	mState.packAlignment = alignment;
+	mState.packParameters.alignment = alignment;
 }
 
 void Context::setUnpackAlignment(GLint alignment)
 {
-	mState.unpackInfo.alignment = alignment;
+	mState.unpackParameters.alignment = alignment;
 }
 
-const egl::Image::UnpackInfo& Context::getUnpackInfo() const
+const egl::PixelStorageModes &Context::getUnpackParameters() const
 {
-	return mState.unpackInfo;
+	return mState.unpackParameters;
 }
 
 void Context::setPackRowLength(GLint rowLength)
 {
-	mState.packRowLength = rowLength;
-}
-
-void Context::setPackImageHeight(GLint imageHeight)
-{
-	mState.packImageHeight = imageHeight;
+	mState.packParameters.rowLength = rowLength;
 }
 
 void Context::setPackSkipPixels(GLint skipPixels)
 {
-	mState.packSkipPixels = skipPixels;
+	mState.packParameters.skipPixels = skipPixels;
 }
 
 void Context::setPackSkipRows(GLint skipRows)
 {
-	mState.packSkipRows = skipRows;
-}
-
-void Context::setPackSkipImages(GLint skipImages)
-{
-	mState.packSkipImages = skipImages;
+	mState.packParameters.skipRows = skipRows;
 }
 
 void Context::setUnpackRowLength(GLint rowLength)
 {
-	mState.unpackInfo.rowLength = rowLength;
+	mState.unpackParameters.rowLength = rowLength;
 }
 
 void Context::setUnpackImageHeight(GLint imageHeight)
 {
-	mState.unpackInfo.imageHeight = imageHeight;
+	mState.unpackParameters.imageHeight = imageHeight;
 }
 
 void Context::setUnpackSkipPixels(GLint skipPixels)
 {
-	mState.unpackInfo.skipPixels = skipPixels;
+	mState.unpackParameters.skipPixels = skipPixels;
 }
 
 void Context::setUnpackSkipRows(GLint skipRows)
 {
-	mState.unpackInfo.skipRows = skipRows;
+	mState.unpackParameters.skipRows = skipRows;
 }
 
 void Context::setUnpackSkipImages(GLint skipImages)
 {
-	mState.unpackInfo.skipImages = skipImages;
+	mState.unpackParameters.skipImages = skipImages;
 }
 
 GLuint Context::createBuffer()
@@ -1207,6 +1186,13 @@ void Context::bindTexture2DArray(GLuint texture)
 	mResourceManager->checkTextureAllocation(texture, TEXTURE_2D_ARRAY);
 
 	mState.samplerTexture[TEXTURE_2D_ARRAY][mState.activeSampler] = getTexture(texture);
+}
+
+void Context::bindTexture2DRect(GLuint texture)
+{
+	mResourceManager->checkTextureAllocation(texture, TEXTURE_2D_RECT);
+
+	mState.samplerTexture[TEXTURE_2D_RECT][mState.activeSampler] = getTexture(texture);
 }
 
 void Context::bindReadFramebuffer(GLuint framebuffer)
@@ -1579,12 +1565,11 @@ Buffer *Context::getGenericUniformBuffer() const
 	return mState.genericUniformBuffer;
 }
 
-GLsizei Context::getRequiredBufferSize(GLsizei width, GLsizei height, GLsizei depth, GLint internalformat, GLenum type) const
+GLsizei Context::getRequiredBufferSize(GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type) const
 {
-	GLenum format = GetSizedInternalFormat(internalformat, type);
-	GLsizei inputWidth = (mState.unpackInfo.rowLength == 0) ? width : mState.unpackInfo.rowLength;
-	GLsizei inputPitch = egl::ComputePitch(inputWidth, format, type, mState.unpackInfo.alignment);
-	GLsizei inputHeight = (mState.unpackInfo.imageHeight == 0) ? height : mState.unpackInfo.imageHeight;
+	GLsizei inputWidth = (mState.unpackParameters.rowLength == 0) ? width : mState.unpackParameters.rowLength;
+	GLsizei inputPitch = egl::ComputePitch(inputWidth, format, type, mState.unpackParameters.alignment);
+	GLsizei inputHeight = (mState.unpackParameters.imageHeight == 0) ? height : mState.unpackParameters.imageHeight;
 	return inputPitch * inputHeight * depth;
 }
 
@@ -1681,6 +1666,19 @@ Texture2D *Context::getTexture2D() const
 	return static_cast<Texture2D*>(getSamplerTexture(mState.activeSampler, TEXTURE_2D));
 }
 
+Texture2D *Context::getTexture2D(GLenum target) const
+{
+	switch(target)
+	{
+	case GL_TEXTURE_2D:            return getTexture2D();
+	case GL_TEXTURE_RECTANGLE_ARB: return getTexture2DRect();
+	case GL_TEXTURE_EXTERNAL_OES:  return getTextureExternal();
+	default:                       UNREACHABLE(target);
+	}
+
+	return nullptr;
+}
+
 Texture3D *Context::getTexture3D() const
 {
 	return static_cast<Texture3D*>(getSamplerTexture(mState.activeSampler, TEXTURE_3D));
@@ -1694,6 +1692,11 @@ Texture2DArray *Context::getTexture2DArray() const
 TextureCubeMap *Context::getTextureCubeMap() const
 {
 	return static_cast<TextureCubeMap*>(getSamplerTexture(mState.activeSampler, TEXTURE_CUBE));
+}
+
+Texture2DRect *Context::getTexture2DRect() const
+{
+	return static_cast<Texture2DRect*>(getSamplerTexture(mState.activeSampler, TEXTURE_2D_RECT));
 }
 
 TextureExternal *Context::getTextureExternal() const
@@ -1713,6 +1716,7 @@ Texture *Context::getSamplerTexture(unsigned int sampler, TextureType type) cons
 		case TEXTURE_3D: return mTexture3DZero;
 		case TEXTURE_2D_ARRAY: return mTexture2DArrayZero;
 		case TEXTURE_CUBE: return mTextureCubeMapZero;
+		case TEXTURE_2D_RECT: return mTexture2DRectZero;
 		case TEXTURE_EXTERNAL: return mTextureExternalZero;
 		default: UNREACHABLE(type);
 		}
@@ -1936,8 +1940,8 @@ template<typename T> bool Context::getIntegerv(GLenum pname, T *params) const
 	case GL_READ_FRAMEBUFFER_BINDING:         *params = mState.readFramebuffer;               return true;
 	case GL_RENDERBUFFER_BINDING:             *params = mState.renderbuffer.name();           return true;
 	case GL_CURRENT_PROGRAM:                  *params = mState.currentProgram;                return true;
-	case GL_PACK_ALIGNMENT:                   *params = mState.packAlignment;                 return true;
-	case GL_UNPACK_ALIGNMENT:                 *params = mState.unpackInfo.alignment;          return true;
+	case GL_PACK_ALIGNMENT:                   *params = mState.packParameters.alignment;                 return true;
+	case GL_UNPACK_ALIGNMENT:                 *params = mState.unpackParameters.alignment;          return true;
 	case GL_GENERATE_MIPMAP_HINT:             *params = mState.generateMipmapHint;            return true;
 	case GL_FRAGMENT_SHADER_DERIVATIVE_HINT_OES: *params = mState.fragmentShaderDerivativeHint; return true;
 	case GL_TEXTURE_FILTERING_HINT_CHROMIUM:  *params = mState.textureFilteringHint;          return true;
@@ -1965,6 +1969,7 @@ template<typename T> bool Context::getIntegerv(GLenum pname, T *params) const
 	case GL_STENCIL_BACK_WRITEMASK:           *params = sw::clampToSignedInt(mState.stencilBackWritemask); return true;
 	case GL_STENCIL_CLEAR_VALUE:              *params = mState.stencilClearValue;             return true;
 	case GL_SUBPIXEL_BITS:                    *params = 4;                                    return true;
+	case GL_MAX_RECTANGLE_TEXTURE_SIZE_ARB:
 	case GL_MAX_TEXTURE_SIZE:                 *params = IMPLEMENTATION_MAX_TEXTURE_SIZE;          return true;
 	case GL_MAX_CUBE_MAP_TEXTURE_SIZE:        *params = IMPLEMENTATION_MAX_CUBE_MAP_TEXTURE_SIZE; return true;
 	case GL_NUM_COMPRESSED_TEXTURE_FORMATS:   *params = NUM_COMPRESSED_TEXTURE_FORMATS;           return true;
@@ -2112,6 +2117,15 @@ template<typename T> bool Context::getIntegerv(GLenum pname, T *params) const
 		}
 
 		*params = mState.samplerTexture[TEXTURE_CUBE][mState.activeSampler].name();
+		return true;
+	case GL_TEXTURE_BINDING_RECTANGLE_ARB:
+		if(mState.activeSampler > MAX_COMBINED_TEXTURE_IMAGE_UNITS - 1)
+		{
+			error(GL_INVALID_OPERATION);
+			return false;
+		}
+
+		*params = mState.samplerTexture[TEXTURE_2D_RECT][mState.activeSampler].name();
 		return true;
 	case GL_TEXTURE_BINDING_EXTERNAL_OES:
 		if(mState.activeSampler > MAX_COMBINED_TEXTURE_IMAGE_UNITS - 1)
@@ -2284,13 +2298,13 @@ template<typename T> bool Context::getIntegerv(GLenum pname, T *params) const
 			*params = NUM_PROGRAM_BINARY_FORMATS;
 			return true;
 		case GL_PACK_ROW_LENGTH:
-			*params = mState.packRowLength;
+			*params = mState.packParameters.rowLength;
 			return true;
 		case GL_PACK_SKIP_PIXELS:
-			*params = mState.packSkipPixels;
+			*params = mState.packParameters.skipPixels;
 			return true;
 		case GL_PACK_SKIP_ROWS:
-			*params = mState.packSkipRows;
+			*params = mState.packParameters.skipRows;
 			return true;
 		case GL_PIXEL_PACK_BUFFER_BINDING:
 			*params = mState.pixelPackBuffer.name();
@@ -2321,19 +2335,19 @@ template<typename T> bool Context::getIntegerv(GLenum pname, T *params) const
 			*params = static_cast<T>(mState.genericUniformBuffer->offset());
 			return true;
 		case GL_UNPACK_IMAGE_HEIGHT:
-			*params = mState.unpackInfo.imageHeight;
+			*params = mState.unpackParameters.imageHeight;
 			return true;
 		case GL_UNPACK_ROW_LENGTH:
-			*params = mState.unpackInfo.rowLength;
+			*params = mState.unpackParameters.rowLength;
 			return true;
 		case GL_UNPACK_SKIP_IMAGES:
-			*params = mState.unpackInfo.skipImages;
+			*params = mState.unpackParameters.skipImages;
 			return true;
 		case GL_UNPACK_SKIP_PIXELS:
-			*params = mState.unpackInfo.skipPixels;
+			*params = mState.unpackParameters.skipPixels;
 			return true;
 		case GL_UNPACK_SKIP_ROWS:
-			*params = mState.unpackInfo.skipRows;
+			*params = mState.unpackParameters.skipRows;
 			return true;
 		case GL_VERTEX_ARRAY_BINDING:
 			*params = getCurrentVertexArray()->name;
@@ -2535,12 +2549,14 @@ bool Context::getQueryParameterInfo(GLenum pname, GLenum *type, unsigned int *nu
 	case GL_SUBPIXEL_BITS:
 	case GL_MAX_TEXTURE_SIZE:
 	case GL_MAX_CUBE_MAP_TEXTURE_SIZE:
+	case GL_MAX_RECTANGLE_TEXTURE_SIZE_ARB:
 	case GL_SAMPLE_BUFFERS:
 	case GL_SAMPLES:
 	case GL_IMPLEMENTATION_COLOR_READ_TYPE:
 	case GL_IMPLEMENTATION_COLOR_READ_FORMAT:
 	case GL_TEXTURE_BINDING_2D:
 	case GL_TEXTURE_BINDING_CUBE_MAP:
+	case GL_TEXTURE_BINDING_RECTANGLE_ARB:
 	case GL_TEXTURE_BINDING_EXTERNAL_OES:
 	case GL_TEXTURE_BINDING_3D_OES:
 	case GL_COPY_READ_BUFFER_BINDING:
@@ -3186,7 +3202,11 @@ void Context::applyTexture(sw::SamplerType type, int index, Texture *baseTexture
 		int baseLevel = baseTexture->getBaseLevel();
 		int maxLevel = std::min(baseTexture->getTopLevel(), baseTexture->getMaxLevel());
 
-		if(baseTexture->getTarget() == GL_TEXTURE_2D || baseTexture->getTarget() == GL_TEXTURE_EXTERNAL_OES)
+		switch(baseTexture->getTarget())
+		{
+		case GL_TEXTURE_2D:
+		case GL_TEXTURE_EXTERNAL_OES:
+		case GL_TEXTURE_RECTANGLE_ARB:
 		{
 			Texture2D *texture = static_cast<Texture2D*>(baseTexture);
 
@@ -3203,7 +3223,8 @@ void Context::applyTexture(sw::SamplerType type, int index, Texture *baseTexture
 				device->setTextureLevel(sampler, 0, mipmapLevel, surface, sw::TEXTURE_2D);
 			}
 		}
-		else if(baseTexture->getTarget() == GL_TEXTURE_3D)
+		break;
+		case GL_TEXTURE_3D:
 		{
 			Texture3D *texture = static_cast<Texture3D*>(baseTexture);
 
@@ -3220,7 +3241,8 @@ void Context::applyTexture(sw::SamplerType type, int index, Texture *baseTexture
 				device->setTextureLevel(sampler, 0, mipmapLevel, surface, sw::TEXTURE_3D);
 			}
 		}
-		else if(baseTexture->getTarget() == GL_TEXTURE_2D_ARRAY)
+		break;
+		case GL_TEXTURE_2D_ARRAY:
 		{
 			Texture2DArray *texture = static_cast<Texture2DArray*>(baseTexture);
 
@@ -3237,7 +3259,8 @@ void Context::applyTexture(sw::SamplerType type, int index, Texture *baseTexture
 				device->setTextureLevel(sampler, 0, mipmapLevel, surface, sw::TEXTURE_2D_ARRAY);
 			}
 		}
-		else if(baseTexture->getTarget() == GL_TEXTURE_CUBE_MAP)
+		break;
+		case GL_TEXTURE_CUBE_MAP:
 		{
 			TextureCubeMap *cubeTexture = static_cast<TextureCubeMap*>(baseTexture);
 
@@ -3259,7 +3282,11 @@ void Context::applyTexture(sw::SamplerType type, int index, Texture *baseTexture
 				}
 			}
 		}
-		else UNIMPLEMENTED();
+		break;
+		default:
+			UNIMPLEMENTED();
+			break;
+		}
 	}
 	else
 	{
@@ -3287,11 +3314,11 @@ void Context::readPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum
 		return error(GL_INVALID_OPERATION);
 	}
 
-	GLsizei outputWidth = (mState.packRowLength > 0) ? mState.packRowLength : width;
-	GLsizei outputPitch = egl::ComputePitch(outputWidth, format, type, mState.packAlignment);
-	GLsizei outputHeight = (mState.packImageHeight == 0) ? height : mState.packImageHeight;
+	GLsizei outputWidth = (mState.packParameters.rowLength > 0) ? mState.packParameters.rowLength : width;
+	GLsizei outputPitch = egl::ComputePitch(outputWidth, format, type, mState.packParameters.alignment);
+	GLsizei outputHeight = (mState.packParameters.imageHeight == 0) ? height : mState.packParameters.imageHeight;
 	pixels = getPixelPackBuffer() ? (unsigned char*)getPixelPackBuffer()->data() + (ptrdiff_t)pixels : (unsigned char*)pixels;
-	pixels = ((char*)pixels) + egl::ComputePackingOffset(format, type, outputWidth, outputHeight, mState.packAlignment, mState.packSkipImages, mState.packSkipRows, mState.packSkipPixels);
+	pixels = ((char*)pixels) + egl::ComputePackingOffset(format, type, outputWidth, outputHeight, mState.packParameters);
 
 	// Sized query sanity check
 	if(bufSize)
@@ -4387,9 +4414,7 @@ const GLubyte *Context::getExtensions(GLuint index, GLuint *numExt) const
 		"GL_EXT_instanced_arrays",
 		"GL_EXT_occlusion_query_boolean",
 		"GL_EXT_read_format_bgra",
-#if (S3TC_SUPPORT)
 		"GL_EXT_texture_compression_dxt1",
-#endif
 		"GL_EXT_texture_filter_anisotropic",
 		"GL_EXT_texture_format_BGRA8888",
 		"GL_EXT_texture_rg",
@@ -4397,13 +4422,12 @@ const GLubyte *Context::getExtensions(GLuint index, GLuint *numExt) const
 		"GL_KHR_texture_compression_astc_hdr",
 		"GL_KHR_texture_compression_astc_ldr",
 #endif
+		"GL_ARB_texture_rectangle",
 		"GL_ANGLE_framebuffer_blit",
 		"GL_ANGLE_framebuffer_multisample",
 		"GL_ANGLE_instanced_arrays",
-#if (S3TC_SUPPORT)
 		"GL_ANGLE_texture_compression_dxt3",
 		"GL_ANGLE_texture_compression_dxt5",
-#endif
 		//"GL_APPLE_texture_format_BGRA8888",
 		"GL_CHROMIUM_texture_filtering_hint",
 		"GL_NV_fence",

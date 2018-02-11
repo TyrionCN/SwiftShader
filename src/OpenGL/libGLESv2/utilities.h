@@ -44,11 +44,11 @@ namespace es2
 
 	bool IsCompressed(GLenum format, GLint clientVersion);
 	GLint GetSizedInternalFormat(GLint internalFormat, GLenum type);
-	GLenum ValidateCompressedFormat(GLenum format, GLint clientVersion, bool expectCompressedFormats);
 	GLenum ValidateSubImageParams(bool compressed, bool copy, GLenum target, GLint level, GLint xoffset, GLint yoffset,
 	                              GLsizei width, GLsizei height, GLenum format, GLenum type, Texture *texture, GLint clientVersion);
 	GLenum ValidateSubImageParams(bool compressed, bool copy, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset,
 	                              GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, Texture *texture, GLint clientVersion);
+	bool ValidateCopyFormats(GLenum textureFormat, GLenum colorbufferFormat);
 	bool IsValidReadPixelsFormatType(const Framebuffer *framebuffer, GLenum format, GLenum type, GLint clientVersion);
 	bool IsDepthTexture(GLenum format);
 	bool IsStencilTexture(GLenum format);
@@ -57,6 +57,7 @@ namespace es2
 	bool IsTextureTarget(GLenum target);
 	GLenum ValidateTextureFormatType(GLenum format, GLenum type, GLint internalformat, GLint clientVersion);
 	GLsizei GetTypeSize(GLenum type);
+	GLenum GetBaseInternalFormat(GLint internalformat);
 
 	bool IsColorRenderable(GLint internalformat, GLint clientVersion);
 	bool IsDepthRenderable(GLint internalformat, GLint clientVersion);

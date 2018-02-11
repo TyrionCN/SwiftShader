@@ -41,11 +41,21 @@ namespace egl
 
 class Context;
 
+struct PixelStorageModes
+{
+	GLint rowLength = 0;
+	GLint skipRows = 0;
+	GLint skipPixels = 0;
+	GLint alignment = 4;
+	GLint imageHeight = 0;
+	GLint skipImages = 0;
+};
+
 sw::Format ConvertFormatType(GLenum format, GLenum type);
 sw::Format SelectInternalFormat(GLenum format, GLenum type);
 GLsizei ComputePitch(GLsizei width, GLenum format, GLenum type, GLint alignment);
 GLsizei ComputeCompressedSize(GLsizei width, GLsizei height, GLenum format);
-size_t ComputePackingOffset(GLenum format, GLenum type, GLsizei width, GLsizei height, GLint alignment, GLint skipImages, GLint skipRows, GLint skipPixels);
+size_t ComputePackingOffset(GLenum format, GLenum type, GLsizei width, GLsizei height, const PixelStorageModes &storageModes);
 
 class [[clang::lto_visibility_public]] Image : public sw::Surface, public gl::Object
 {
@@ -147,9 +157,9 @@ public:
 		shared = true;
 	}
 
-	virtual void *lock(unsigned int left, unsigned int top, sw::Lock lock)
+	virtual void *lock(int x, int y, int z, sw::Lock lock)
 	{
-		return lockExternal(left, top, 0, lock, sw::PUBLIC);
+		return lockExternal(x, y, z, lock, sw::PUBLIC);
 	}
 
 	unsigned int getPitch() const
@@ -170,19 +180,7 @@ public:
 	void *lockInternal(int x, int y, int z, sw::Lock lock, sw::Accessor client) override = 0;
 	void unlockInternal() override = 0;
 
-	struct UnpackInfo
-	{
-		UnpackInfo() : alignment(4), rowLength(0), imageHeight(0), skipPixels(0), skipRows(0), skipImages(0) {}
-
-		GLint alignment;
-		GLint rowLength;
-		GLint imageHeight;
-		GLint skipPixels;
-		GLint skipRows;
-		GLint skipImages;
-	};
-
-	void loadImageData(Context *context, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, const UnpackInfo& unpackInfo, const void *input);
+	void loadImageData(Context *context, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, const PixelStorageModes &unpackParameters, const void *pixels);
 	void loadCompressedData(GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLsizei imageSize, const void *pixels);
 
 	void release() override = 0;
@@ -325,10 +323,10 @@ private:
 		sw::Surface::unlockInternal();
 	}
 
-	void *lock(unsigned int left, unsigned int top, sw::Lock lock) override
+	void *lock(int x, int y, int z, sw::Lock lock) override
 	{
 		LOGLOCK("image=%p op=%s lock=%d", this, __FUNCTION__, lock);
-		(void)sw::Surface::lockExternal(left, top, 0, lock, sw::PUBLIC);
+		(void)sw::Surface::lockExternal(x, y, z, lock, sw::PUBLIC);
 
 		return lockNativeBuffer(GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
 	}
