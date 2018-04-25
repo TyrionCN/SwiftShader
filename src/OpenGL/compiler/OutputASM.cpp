@@ -2859,6 +2859,10 @@ namespace glsl
 		{
 			return samplerRegister(operand);
 		}
+		else if(operand->getType().totalSamplerRegisterCount() > 0) // Struct containing a sampler
+		{
+			samplerRegister(operand); // Make sure the sampler is declared
+		}
 
 		switch(operand->getQualifier())
 		{
@@ -3031,7 +3035,14 @@ namespace glsl
 
 	int OutputASM::temporaryRegister(TIntermTyped *temporary)
 	{
-		return allocate(temporaries, temporary);
+		int index = allocate(temporaries, temporary);
+		if(index >= sw::NUM_TEMPORARY_REGISTERS)
+		{
+			mContext.error(temporary->getLine(),
+				"Too many temporary registers required to compile shader",
+				pixelShader ? "pixel shader" : "vertex shader");
+		}
+		return index;
 	}
 
 	void OutputASM::setPixelShaderInputs(const TType& type, int var, bool flat)
