@@ -6264,7 +6264,7 @@ void TexImage3DOES(GLenum target, GLint level, GLenum internalformat, GLsizei wi
 		return error(GL_INVALID_VALUE);
 	}
 
-	const GLsizei maxSize3D = es2::IMPLEMENTATION_MAX_TEXTURE_SIZE >> level;
+	const GLsizei maxSize3D = es2::IMPLEMENTATION_MAX_3D_TEXTURE_SIZE >> level;
 	if((width < 0) || (height < 0) || (depth < 0) || (width > maxSize3D) || (height > maxSize3D) || (depth > maxSize3D))
 	{
 		return error(GL_INVALID_VALUE);
@@ -6412,7 +6412,7 @@ void CompressedTexImage3DOES(GLenum target, GLint level, GLenum internalformat, 
 		return error(GL_INVALID_VALUE);
 	}
 
-	const GLsizei maxSize3D = es2::IMPLEMENTATION_MAX_TEXTURE_SIZE >> level;
+	const GLsizei maxSize3D = es2::IMPLEMENTATION_MAX_3D_TEXTURE_SIZE >> level;
 	if((width < 0) || (height < 0) || (depth < 0) || (width > maxSize3D) || (height > maxSize3D) || (depth > maxSize3D) ||(border != 0) || (imageSize < 0))
 	{
 		return error(GL_INVALID_VALUE);
@@ -6869,6 +6869,7 @@ extern "C" NO_SANITIZE_FUNCTION __eglMustCastToProperFunctionPointerType es2GetP
 		FUNCTION(glBindTexture),
 		FUNCTION(glBindTransformFeedback),
 		FUNCTION(glBindVertexArray),
+		FUNCTION(glBindVertexArrayOES),
 		FUNCTION(glBlendColor),
 		FUNCTION(glBlendEquation),
 		FUNCTION(glBlendEquationSeparate),
@@ -6917,6 +6918,7 @@ extern "C" NO_SANITIZE_FUNCTION __eglMustCastToProperFunctionPointerType es2GetP
 		FUNCTION(glDeleteTextures),
 		FUNCTION(glDeleteTransformFeedbacks),
 		FUNCTION(glDeleteVertexArrays),
+		FUNCTION(glDeleteVertexArraysOES),
 		FUNCTION(glDepthFunc),
 		FUNCTION(glDepthMask),
 		FUNCTION(glDepthRangef),
@@ -6960,6 +6962,7 @@ extern "C" NO_SANITIZE_FUNCTION __eglMustCastToProperFunctionPointerType es2GetP
 		FUNCTION(glGenTextures),
 		FUNCTION(glGenTransformFeedbacks),
 		FUNCTION(glGenVertexArrays),
+		FUNCTION(glGenVertexArraysOES),
 		FUNCTION(glGenerateMipmap),
 		FUNCTION(glGenerateMipmapOES),
 		FUNCTION(glGetActiveAttrib),
@@ -7038,6 +7041,7 @@ extern "C" NO_SANITIZE_FUNCTION __eglMustCastToProperFunctionPointerType es2GetP
 		FUNCTION(glIsTexture),
 		FUNCTION(glIsTransformFeedback),
 		FUNCTION(glIsVertexArray),
+		FUNCTION(glIsVertexArrayOES),
 		FUNCTION(glLineWidth),
 		FUNCTION(glLinkProgram),
 		FUNCTION(glMapBufferRange),

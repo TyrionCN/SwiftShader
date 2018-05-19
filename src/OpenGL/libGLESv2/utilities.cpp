@@ -1383,6 +1383,11 @@ namespace es2
 
 	bool IsMipmappable(GLint internalformat, GLint clientVersion)
 	{
+		if(internalformat == GL_NONE)
+		{
+			return true;   // Image unspecified. Not an error.
+		}
+
 		if(IsNonNormalizedInteger(internalformat))
 		{
 			return false;

@@ -204,7 +204,8 @@ protected:
 		EXPECT_EQ((EGLBoolean)EGL_TRUE, success);
 	}
 
-	struct ProgramHandles {
+	struct ProgramHandles
+	{
 		GLuint program;
 		GLuint vsShader;
 		GLuint fsShader;
@@ -258,9 +259,12 @@ protected:
 		GLint posLoc = glGetAttribLocation(program, "position");
 		EXPECT_GLENUM_EQ(GL_NONE, glGetError());
 
-		GLint location = glGetUniformLocation(program, textureName);
-		ASSERT_NE(-1, location);
-		glUniform1i(location, 0);
+		if(textureName)
+		{
+			GLint location = glGetUniformLocation(program, textureName);
+			ASSERT_NE(-1, location);
+			glUniform1i(location, 0);
+		}
 
 		float vertices[18] = { -1.0f,  1.0f, 0.5f,
 		                       -1.0f, -1.0f, 0.5f,
@@ -284,6 +288,7 @@ protected:
 	EGLConfig getConfig() const { return config; }
 	EGLSurface getSurface() const { return surface; }
 	EGLContext getContext() const { return context; }
+
 private:
 	EGLDisplay display;
 	EGLConfig config;
@@ -366,6 +371,83 @@ TEST_F(SwiftShaderTest, SamplerArrayInStructArrayAsFunctionArg)
 	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
 
 	Uninitialize();
+}
+
+// Test sampling from a sampler in a struct as a function argument
+TEST_F(SwiftShaderTest, AtanCornerCases)
+{
+	Initialize(3, false);
+
+	const std::string vs =
+		"#version 300 es\n"
+		"in vec4 position;\n"
+		"void main()\n"
+		"{\n"
+		"	gl_Position = vec4(position.xy, 0.0, 1.0);\n"
+		"}\n";
+
+	const std::string fs =
+		"#version 300 es\n"
+		"precision mediump float;\n"
+		"const float kPI = 3.14159265358979323846;"
+		"uniform float positive_value;\n"
+		"uniform float negative_value;\n"
+		"out vec4 fragColor;\n"
+		"void main()\n"
+		"{\n"
+		"	// Should yield vec4(0, pi, pi/2, -pi/2)\n"
+		"	vec4 result = atan(vec4(0.0, 0.0, positive_value, negative_value),\n"
+		"	                   vec4(positive_value, negative_value, 0.0, 0.0));\n"
+		"	fragColor = (result / vec4(kPI)) + vec4(0.5, -0.5, 0.0, 1.0) + vec4(0.5 / 255.0);\n"
+		"}\n";
+
+	const ProgramHandles ph = createProgram(vs, fs);
+
+	glUseProgram(ph.program);
+	GLint positive_value = glGetUniformLocation(ph.program, "positive_value");
+	ASSERT_NE(-1, positive_value);
+	GLint negative_value = glGetUniformLocation(ph.program, "negative_value");
+	ASSERT_NE(-1, negative_value);
+	glUniform1f(positive_value,  1.0);
+	glUniform1f(negative_value, -1.0);
+
+	glClearColor(0.0, 0.0, 0.0, 0.0);
+	glClear(GL_COLOR_BUFFER_BIT);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	drawQuad(ph.program, nullptr);
+
+	deleteProgram(ph);
+
+	unsigned char grey[4] = { 128, 128, 128, 128 };
+	compareColor(grey);
+
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	Uninitialize();
+}
+
+// Test conditions that should result in a GL_OUT_OF_MEMORY and not crash
+TEST_F(SwiftShaderTest, OutOfMemory)
+{
+	// Image sizes are assumed to fit in a 32-bit signed integer by the renderer,
+	// so test that we can't create a 2+ GiB image.
+	{
+		Initialize(3, false);
+
+		GLuint tex = 1;
+		glBindTexture(GL_TEXTURE_3D, tex);
+
+		const int width = 0xC2;
+		const int height = 0x541;
+		const int depth = 0x404;
+		glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA32F, width, height, depth, 0, GL_RGBA, GL_FLOAT, nullptr);
+		EXPECT_GLENUM_EQ(GL_OUT_OF_MEMORY, glGetError());
+
+		// The spec states that the GL is in an undefined state when GL_OUT_OF_MEMORY
+		// is returned, and the context must be recreated before attempting more rendering.
+		Uninitialize();
+	}
 }
 
 // Note: GL_ARB_texture_rectangle is part of gl2extchromium.h in the Chromium repo
