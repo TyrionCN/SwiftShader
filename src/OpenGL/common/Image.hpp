@@ -79,6 +79,7 @@ public:
 	void release();
 	void* lock(int x, int y, int z);
 	void unlock();
+	bool requiresSync() const;
 
 private:
 	int width;

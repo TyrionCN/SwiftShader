@@ -934,7 +934,7 @@ if(BUILD_GLESv2)
     set_target_properties(libGLESv2 PROPERTIES
         INCLUDE_DIRECTORIES "${OPENGL_INCLUDE_DIR}"
         FOLDER "OpenGL"
-        COMPILE_DEFINITIONS "GL_GLEXT_PROTOTYPES; GL_API=; GL_APICALL=; NO_SANITIZE_FUNCTION=;"
+        COMPILE_DEFINITIONS "GL_GLEXT_PROTOTYPES; GL_API=; GL_APICALL=; GLAPI=; NO_SANITIZE_FUNCTION=;"
         PREFIX ""
     )
     set_target_export_map(libGLESv2 ${SOURCE_DIR}/OpenGL/libGLESv2)
@@ -954,7 +954,7 @@ if(BUILD_GLES_CM)
     set_target_properties(libGLES_CM PROPERTIES
         INCLUDE_DIRECTORIES "${OPENGL_INCLUDE_DIR}"
         FOLDER "OpenGL"
-        COMPILE_DEFINITIONS "GL_GLEXT_PROTOTYPES; EGLAPI=; GL_API=; GL_APICALL=;"
+        COMPILE_DEFINITIONS "GL_GLEXT_PROTOTYPES; EGLAPI=; GL_API=; GL_APICALL=; GLAPI=;"
         PREFIX ""
     )
     set_target_export_map(libGLES_CM ${SOURCE_DIR}/OpenGL/libGLES_CM)
@@ -1027,4 +1027,28 @@ if(BUILD_TESTS AND ${REACTOR_BACKEND} STREQUAL "Subzero")
     else()
         target_link_libraries(SubzeroTest ReactorSubzero pthread dl)
     endif()
+endif()
+
+if(BUILD_TESTS)
+    set(UNITTESTS_LIST
+        ${CMAKE_SOURCE_DIR}/tests/unittests/main.cpp
+        ${CMAKE_SOURCE_DIR}/tests/unittests/unittests.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/src/gtest-all.cc
+    )
+
+    set(UNITTESTS_INCLUDE_DIR
+        ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include/
+        ${CMAKE_SOURCE_DIR}/third_party/googletest/googlemock/include/
+        ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/
+        ${CMAKE_SOURCE_DIR}/include/
+    )
+
+    add_executable(unittests ${UNITTESTS_LIST})
+    set_target_properties(unittests PROPERTIES
+        INCLUDE_DIRECTORIES "${UNITTESTS_INCLUDE_DIR}"
+        FOLDER "Tests"
+        COMPILE_DEFINITIONS "STANDALONE"
+    )
+
+    target_link_libraries(unittests libEGL libGLESv2 ${OS_LIBS})
 endif()

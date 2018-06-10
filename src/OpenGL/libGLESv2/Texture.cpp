@@ -528,6 +528,19 @@ int Texture2D::getTopLevel() const
 	return level - 1;
 }
 
+bool Texture2D::requiresSync() const
+{
+	for(int level = 0; level < IMPLEMENTATION_MAX_TEXTURE_LEVELS; level++)
+	{
+		if(image[level] && image[level]->requiresSync())
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
 void Texture2D::setImage(GLint level, GLsizei width, GLsizei height, GLint internalformat, GLenum format, GLenum type, const gl::PixelStorageModes &unpackParameters, const void *pixels)
 {
 	if(image[level])
@@ -609,14 +622,6 @@ void Texture2D::subImageCompressed(GLint level, GLint xoffset, GLint yoffset, GL
 
 void Texture2D::copyImage(GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width, GLsizei height, Renderbuffer *source)
 {
-	egl::Image *renderTarget = source->getRenderTarget();
-
-	if(!renderTarget)
-	{
-		ERR("Failed to retrieve the render target.");
-		return error(GL_OUT_OF_MEMORY);
-	}
-
 	if(image[level])
 	{
 		image[level]->release();
@@ -631,13 +636,21 @@ void Texture2D::copyImage(GLint level, GLenum internalformat, GLint x, GLint y, 
 
 	if(width != 0 && height != 0)
 	{
+		egl::Image *renderTarget = source->getRenderTarget();
+
+		if(!renderTarget)
+		{
+			ERR("Failed to retrieve the render target.");
+			return error(GL_OUT_OF_MEMORY);
+		}
+
 		sw::SliceRect sourceRect(x, y, x + width, y + height, 0);
 		sourceRect.clip(0, 0, renderTarget->getWidth(), renderTarget->getHeight());
 
 		copy(renderTarget, sourceRect, 0, 0, 0, image[level]);
-	}
 
-	renderTarget->release();
+		renderTarget->release();
+	}
 }
 
 void Texture2D::copySubImage(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y, GLsizei width, GLsizei height, Renderbuffer *source)
@@ -1019,6 +1032,22 @@ int TextureCubeMap::getTopLevel() const
 	return level - 1;
 }
 
+bool TextureCubeMap::requiresSync() const
+{
+	for(int level = 0; level < IMPLEMENTATION_MAX_TEXTURE_LEVELS; level++)
+	{
+		for(int face = 0; face < 6; face++)
+		{
+			if(image[face][level] && image[face][level]->requiresSync())
+			{
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
 void TextureCubeMap::setCompressedImage(GLenum target, GLint level, GLenum format, GLsizei width, GLsizei height, GLsizei imageSize, const void *pixels)
 {
 	int face = CubeFaceIndex(target);
@@ -1248,14 +1277,6 @@ void TextureCubeMap::setImage(GLenum target, GLint level, GLsizei width, GLsizei
 
 void TextureCubeMap::copyImage(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width, GLsizei height, Renderbuffer *source)
 {
-	egl::Image *renderTarget = source->getRenderTarget();
-
-	if(!renderTarget)
-	{
-		ERR("Failed to retrieve the render target.");
-		return error(GL_OUT_OF_MEMORY);
-	}
-
 	int face = CubeFaceIndex(target);
 
 	if(image[face][level])
@@ -1273,13 +1294,21 @@ void TextureCubeMap::copyImage(GLenum target, GLint level, GLenum internalformat
 
 	if(width != 0 && height != 0)
 	{
+		egl::Image *renderTarget = source->getRenderTarget();
+
+		if(!renderTarget)
+		{
+			ERR("Failed to retrieve the render target.");
+			return error(GL_OUT_OF_MEMORY);
+		}
+
 		sw::SliceRect sourceRect(x, y, x + width, y + height, 0);
 		sourceRect.clip(0, 0, renderTarget->getWidth(), renderTarget->getHeight());
 
 		copy(renderTarget, sourceRect, 0, 0, 0, image[face][level]);
-	}
 
-	renderTarget->release();
+		renderTarget->release();
+	}
 }
 
 egl::Image *TextureCubeMap::getImage(int face, unsigned int level)
@@ -1531,6 +1560,19 @@ int Texture3D::getTopLevel() const
 	return level - 1;
 }
 
+bool Texture3D::requiresSync() const
+{
+	for(int level = 0; level < IMPLEMENTATION_MAX_TEXTURE_LEVELS; level++)
+	{
+		if(image[level] && image[level]->requiresSync())
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
 void Texture3D::setImage(GLint level, GLsizei width, GLsizei height, GLsizei depth, GLint internalformat, GLenum format, GLenum type, const gl::PixelStorageModes &unpackParameters, const void *pixels)
 {
 	if(image[level])
@@ -1582,14 +1624,6 @@ void Texture3D::subImageCompressed(GLint level, GLint xoffset, GLint yoffset, GL
 
 void Texture3D::copyImage(GLint level, GLenum internalformat, GLint x, GLint y, GLint z, GLsizei width, GLsizei height, GLsizei depth, Renderbuffer *source)
 {
-	egl::Image *renderTarget = source->getRenderTarget();
-
-	if(!renderTarget)
-	{
-		ERR("Failed to retrieve the render target.");
-		return error(GL_OUT_OF_MEMORY);
-	}
-
 	if(image[level])
 	{
 		image[level]->release();
@@ -1604,6 +1638,14 @@ void Texture3D::copyImage(GLint level, GLenum internalformat, GLint x, GLint y, 
 
 	if(width != 0 && height != 0 && depth != 0)
 	{
+		egl::Image *renderTarget = source->getRenderTarget();
+
+		if(!renderTarget)
+		{
+			ERR("Failed to retrieve the render target.");
+			return error(GL_OUT_OF_MEMORY);
+		}
+
 		sw::SliceRect sourceRect(x, y, x + width, y + height, z);
 		sourceRect.clip(0, 0, renderTarget->getWidth(), renderTarget->getHeight());
 
@@ -1611,9 +1653,9 @@ void Texture3D::copyImage(GLint level, GLenum internalformat, GLint x, GLint y, 
 		{
 			copy(renderTarget, sourceRect, 0, 0, sliceZ, image[level]);
 		}
-	}
 
-	renderTarget->release();
+		renderTarget->release();
+	}
 }
 
 void Texture3D::copySubImage(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y, GLsizei width, GLsizei height, Renderbuffer *source)
