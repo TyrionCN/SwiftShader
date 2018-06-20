@@ -94,14 +94,13 @@ swiftshader_static_library("swiftshader_libGLESv2_static") {
 }
 
 swiftshader_shared_library("swiftshader_libGLESv2") {
-  if (!is_mac) {
+  if (!is_mac && !is_fuchsia) {
     output_name = "libGLESv2"
     output_dir = "$root_out_dir/swiftshader"
   }
 
   deps = [
     ":swiftshader_libGLESv2_static",
-    "//build/config:exe_and_shlib_deps",
   ]
 
   sources = [

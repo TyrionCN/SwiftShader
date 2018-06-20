@@ -37,14 +37,10 @@ config("swiftshader_libEGL_private_config") {
 }
 
 swiftshader_shared_library("swiftshader_libEGL") {
-  if (!is_mac) {
+  if (!is_mac && !is_fuchsia) {
     output_name = "libEGL"
     output_dir = "$root_out_dir/swiftshader"
   }
-
-  deps = [
-    "//build/config:exe_and_shlib_deps",
-  ]
 
   sources = [
     "../common/Object.cpp",
