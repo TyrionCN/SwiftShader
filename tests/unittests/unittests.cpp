@@ -30,6 +30,7 @@
 #endif
 
 #include <string.h>
+#include <cstdint>
 
 #define EXPECT_GLENUM_EQ(expected, actual) EXPECT_EQ(static_cast<GLenum>(expected), static_cast<GLenum>(actual))
 
@@ -136,7 +137,7 @@ protected:
 			EXPECT_TRUE(renderableType & EGL_OPENGL_ES2_BIT);
 
 			EGLint surfaceType = 0;
-			eglGetConfigAttrib(display, config, EGL_RENDERABLE_TYPE, &surfaceType);
+			eglGetConfigAttrib(display, config, EGL_SURFACE_TYPE, &surfaceType);
 			EXPECT_EQ(EGL_SUCCESS, eglGetError());
 			EXPECT_TRUE(surfaceType & EGL_WINDOW_BIT);
 		}
@@ -190,6 +191,8 @@ protected:
 
 	void Uninitialize()
 	{
+		EXPECT_GLENUM_EQ(GL_NO_ERROR, glGetError());
+
 		EGLBoolean success = eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 		EXPECT_EQ(EGL_SUCCESS, eglGetError());
 		EXPECT_EQ((EGLBoolean)EGL_TRUE, success);
@@ -333,9 +336,10 @@ TEST_F(SwiftShaderTest, Initalization)
 	EXPECT_GLENUM_EQ(GL_NO_ERROR, glGetError());
 	EXPECT_STREQ("Google SwiftShader", (const char*)glRenderer);
 
+	// SwiftShader return an OpenGL ES 3.0 context when a 2.0 context is requested, as allowed by the spec.
 	const GLubyte *glVersion = glGetString(GL_VERSION);
 	EXPECT_GLENUM_EQ(GL_NO_ERROR, glGetError());
-	EXPECT_THAT((const char*)glVersion, testing::HasSubstr("OpenGL ES 2.0 SwiftShader "));
+	EXPECT_THAT((const char*)glVersion, testing::HasSubstr("OpenGL ES 3.0 SwiftShader "));
 
 	Uninitialize();
 }
@@ -551,6 +555,73 @@ TEST_F(SwiftShaderTest, ClearDirtyTexture)
 	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
 
 	expectFramebufferColor(clear_color, dirty_x, dirty_y);
+
+	Uninitialize();
+}
+
+// Tests copying between textures of different floating-point formats using a framebuffer object.
+TEST_F(SwiftShaderTest, CopyTexImage)
+{
+	Initialize(3, false);
+
+	GLuint tex1 = 1;
+	float green[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
+	glBindTexture(GL_TEXTURE_2D, tex1);
+	glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, 16, 16);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 5, 10, 1, 1, GL_RGBA, GL_FLOAT, &green);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	GLuint fbo = 1;
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex1, 0);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	GLuint tex2 = 2;
+	glBindTexture(GL_TEXTURE_2D, tex2);
+	glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 2, 6, 8, 8, 0);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex2, 0);
+	expectFramebufferColor(green, 3, 4);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	Uninitialize();
+}
+
+// Tests reading of half-float textures.
+TEST_F(SwiftShaderTest, ReadHalfFloat)
+{
+	Initialize(3, false);
+
+	GLuint tex = 1;
+	glBindTexture(GL_TEXTURE_2D, tex);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, 256, 256, 0, GL_RGB, GL_HALF_FLOAT, nullptr);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	GLuint fbo = 1;
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+	EXPECT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+
+	const float clear_color[4] = { 1.0f, 32.0f, 0.5f, 1.0f };
+	glClearColor(clear_color[0], clear_color[1], clear_color[2], 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	uint16_t pixel[3] = { 0x1234, 0x3F80, 0xAAAA };
+	GLint x = 6;
+	GLint y = 3;
+	glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, 1, 1, GL_RGB, GL_HALF_FLOAT, pixel);
+
+	// This relies on GL_HALF_FLOAT being a valid type for read-back,
+	// which isn't guaranteed by the spec but is supported by SwiftShader.
+	uint16_t read_color[3] = { 0, 0, 0 };
+	glReadPixels(x, y, 1, 1, GL_RGB, GL_HALF_FLOAT, &read_color);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+	EXPECT_EQ(read_color[0], pixel[0]);
+	EXPECT_EQ(read_color[1], pixel[1]);
+	EXPECT_EQ(read_color[2], pixel[2]);
 
 	Uninitialize();
 }
