@@ -65,6 +65,8 @@
 	#define ARGS(...) {__VA_ARGS__}
 	#define CreateCall2 CreateCall
 	#define CreateCall3 CreateCall
+
+	#include <unordered_map>
 #endif
 
 #include "x86.hpp"
@@ -79,6 +81,8 @@
 #if defined(__i386__) || defined(__x86_64__)
 #include <xmmintrin.h>
 #endif
+
+#include <math.h>
 
 #if defined(__x86_64__) && defined(_WIN32)
 extern "C" void X86CompilationCallback()
@@ -137,13 +141,13 @@ namespace
 	}
 
 	llvm::Value *lowerPMINMAX(llvm::Value *x, llvm::Value *y,
-							  llvm::ICmpInst::Predicate pred)
+	                          llvm::ICmpInst::Predicate pred)
 	{
 		return ::builder->CreateSelect(::builder->CreateICmp(pred, x, y), x, y);
 	}
 
 	llvm::Value *lowerPCMP(llvm::ICmpInst::Predicate pred, llvm::Value *x,
-						   llvm::Value *y, llvm::Type *dstTy)
+	                       llvm::Value *y, llvm::Type *dstTy)
 	{
 		return ::builder->CreateSExt(::builder->CreateICmp(pred, x, y), dstTy, "");
 	}
@@ -160,7 +164,7 @@ namespace
 		llvm::Value *v = ::builder->CreateShuffleVector(op, undef, mask);
 
 		return sext ? ::builder->CreateSExt(v, dstTy)
-					: ::builder->CreateZExt(v, dstTy);
+		            : ::builder->CreateZExt(v, dstTy);
 	}
 
 	llvm::Value *lowerPABS(llvm::Value *v)
@@ -174,38 +178,90 @@ namespace
 
 #if !defined(__i386__) && !defined(__x86_64__)
 	llvm::Value *lowerPFMINMAX(llvm::Value *x, llvm::Value *y,
-							   llvm::FCmpInst::Predicate pred)
+	                           llvm::FCmpInst::Predicate pred)
 	{
 		return ::builder->CreateSelect(::builder->CreateFCmp(pred, x, y), x, y);
 	}
 
-	// Packed add/sub saturatation
-	llvm::Value *lowerPSAT(llvm::Intrinsic::ID intrinsic, llvm::Value *x, llvm::Value *y)
+	llvm::Value *lowerRound(llvm::Value *x)
 	{
-		llvm::Function *func = llvm::Intrinsic::getDeclaration(
-			::module, intrinsic, {x->getType(), y->getType()});
-		llvm::Value *ret = ::builder->CreateCall(func, ARGS(x, y));
-		return ::builder->CreateExtractValue(ret, {0});
+		llvm::Function *nearbyint = llvm::Intrinsic::getDeclaration(
+			::module, llvm::Intrinsic::nearbyint, {x->getType()});
+		return ::builder->CreateCall(nearbyint, ARGS(x));
+	}
+
+	llvm::Value *lowerRoundInt(llvm::Value *x, llvm::Type *ty)
+	{
+		return ::builder->CreateFPToSI(lowerRound(x), ty);
+	}
+
+	llvm::Value *lowerFloor(llvm::Value *x)
+	{
+		llvm::Function *floor = llvm::Intrinsic::getDeclaration(
+			::module, llvm::Intrinsic::floor, {x->getType()});
+		return ::builder->CreateCall(floor, ARGS(x));
+	}
+
+	llvm::Value *lowerTrunc(llvm::Value *x)
+	{
+		llvm::Function *trunc = llvm::Intrinsic::getDeclaration(
+			::module, llvm::Intrinsic::trunc, {x->getType()});
+		return ::builder->CreateCall(trunc, ARGS(x));
+	}
+
+	// Packed add/sub saturatation
+	llvm::Value *lowerPSAT(llvm::Value *x, llvm::Value *y, bool isAdd, bool isSigned)
+	{
+		llvm::VectorType *ty = llvm::cast<llvm::VectorType>(x->getType());
+		llvm::VectorType *extTy = llvm::VectorType::getExtendedElementVectorType(ty);
+
+		unsigned numBits = ty->getScalarSizeInBits();
+
+		llvm::Value *max, *min, *extX, *extY;
+		if (isSigned)
+		{
+			max = llvm::ConstantInt::get(extTy, (1LL << (numBits - 1)) - 1, true);
+			min = llvm::ConstantInt::get(extTy, (-1LL << (numBits - 1)), true);
+			extX = ::builder->CreateSExt(x, extTy);
+			extY = ::builder->CreateSExt(y, extTy);
+		}
+		else
+		{
+			assert(numBits <= 64);
+			uint64_t maxVal = (numBits == 64) ? ~0ULL : (1ULL << numBits) - 1;
+			max = llvm::ConstantInt::get(extTy, maxVal, false);
+			min = llvm::ConstantInt::get(extTy, 0, false);
+			extX = ::builder->CreateZExt(x, extTy);
+			extY = ::builder->CreateZExt(y, extTy);
+		}
+
+		llvm::Value *res = isAdd ? ::builder->CreateAdd(extX, extY)
+		                         : ::builder->CreateSub(extX, extY);
+
+		res = lowerPMINMAX(res, min, llvm::ICmpInst::ICMP_SGT);
+		res = lowerPMINMAX(res, max, llvm::ICmpInst::ICMP_SLT);
+
+		return ::builder->CreateTrunc(res, ty);
 	}
 
 	llvm::Value *lowerPUADDSAT(llvm::Value *x, llvm::Value *y)
 	{
-		return lowerPSAT(llvm::Intrinsic::uadd_with_overflow, x, y);
+		return lowerPSAT(x, y, true, false);
 	}
 
 	llvm::Value *lowerPSADDSAT(llvm::Value *x, llvm::Value *y)
 	{
-		return lowerPSAT(llvm::Intrinsic::sadd_with_overflow, x, y);
+		return lowerPSAT(x, y, true, true);
 	}
 
 	llvm::Value *lowerPUSUBSAT(llvm::Value *x, llvm::Value *y)
 	{
-		return lowerPSAT(llvm::Intrinsic::usub_with_overflow, x, y);
+		return lowerPSAT(x, y, false, false);
 	}
 
 	llvm::Value *lowerPSSUBSAT(llvm::Value *x, llvm::Value *y)
 	{
-		return lowerPSAT(llvm::Intrinsic::ssub_with_overflow, x, y);
+		return lowerPSAT(x, y, false, true);
 	}
 
 	llvm::Value *lowerSQRT(llvm::Value *x)
@@ -398,7 +454,7 @@ namespace sw
 
 	public:
 		LLVMReactorJIT(const std::string &arch_,
-					   const llvm::SmallVectorImpl<std::string> &mattrs_) :
+		               const llvm::SmallVectorImpl<std::string> &mattrs_) :
 			arch(arch_),
 			mattrs(mattrs_.begin(), mattrs_.end()),
 			routineManager(nullptr),
@@ -475,6 +531,27 @@ namespace sw
 		}
 	};
 #else
+	class ExternalFunctionSymbolResolver
+	{
+	private:
+		using FunctionMap = std::unordered_map<std::string, void *>;
+		FunctionMap func_;
+
+	public:
+		ExternalFunctionSymbolResolver()
+		{
+			func_.emplace("floorf", reinterpret_cast<void*>(floorf));
+			func_.emplace("nearbyintf", reinterpret_cast<void*>(nearbyintf));
+			func_.emplace("truncf", reinterpret_cast<void*>(truncf));
+		}
+
+		void *findSymbol(const std::string &name) const
+		{
+			FunctionMap::const_iterator it = func_.find(name);
+			return (it != func_.end()) ? it->second : nullptr;
+		}
+	};
+
 	class LLVMReactorJIT
 	{
 	private:
@@ -482,6 +559,7 @@ namespace sw
 		using CompileLayer = llvm::orc::IRCompileLayer<ObjLayer, llvm::orc::SimpleCompiler>;
 
 		llvm::orc::ExecutionSession session;
+		ExternalFunctionSymbolResolver externalSymbolResolver;
 		std::shared_ptr<llvm::orc::SymbolResolver> resolver;
 		std::unique_ptr<llvm::TargetMachine> targetMachine;
 		const llvm::DataLayout dataLayout;
@@ -495,6 +573,13 @@ namespace sw
 			resolver(createLegacyLookupResolver(
 				session,
 				[this](const std::string &name) {
+					void *func = externalSymbolResolver.findSymbol(name);
+					if (func != nullptr)
+					{
+						return llvm::JITSymbol(
+							reinterpret_cast<uintptr_t>(func), llvm::JITSymbolFlags::Absolute);
+					}
+
 					return objLayer.findSymbol(name, true);
 				},
 				[](llvm::Error err) {
@@ -581,7 +666,7 @@ namespace sw
 				case SCCP:                 passManager->add(llvm::createSCCPPass());                 break;
 				case ScalarReplAggregates: passManager->add(llvm::createSROAPass());                 break;
 				default:
-										   assert(false);
+				                           assert(false);
 				}
 			}
 
@@ -3567,12 +3652,14 @@ namespace sw
 	{
 		if(saturate)
 		{
+#if defined(__i386__) || defined(__x86_64__)
 			if(CPUID::supportsSSE4_1())
 			{
 				Int4 int4(Min(cast, Float4(0xFFFF)));   // packusdw takes care of 0x0000 saturation
 				*this = As<Short4>(PackUnsigned(int4, int4));
 			}
 			else
+#endif
 			{
 				*this = Short4(Int4(Max(Min(cast, Float4(0xFFFF)), Float4(0x0000))));
 			}
@@ -4364,7 +4451,7 @@ namespace sw
 #if defined(__i386__) || defined(__x86_64__)
 		return x86::cvtss2si(cast);
 #else
-		return IfThenElse(cast > 0.0f, Int(cast + 0.5f), Int(cast - 0.5f));
+		return RValue<Int>(V(lowerRoundInt(V(cast.value), T(Int::getType()))));
 #endif
 	}
 
@@ -5611,7 +5698,7 @@ namespace sw
 #if defined(__i386__) || defined(__x86_64__)
 		return x86::cvtps2dq(cast);
 #else
-		return As<Int4>(V(::builder->CreateFPToSI(V(cast.value), T(Int4::getType()))));
+		return As<Int4>(V(lowerRoundInt(V(cast.value), T(Int4::getType()))));
 #endif
 	}
 
@@ -6179,10 +6266,12 @@ namespace sw
 			return x86::roundss(x, 0);
 		}
 		else
-#endif
 		{
 			return Float4(Round(Float4(x))).x;
 		}
+#else
+		return RValue<Float>(V(lowerRound(V(x.value))));
+#endif
 	}
 
 	RValue<Float> Trunc(RValue<Float> x)
@@ -6193,10 +6282,12 @@ namespace sw
 			return x86::roundss(x, 3);
 		}
 		else
-#endif
 		{
 			return Float(Int(x));   // Rounded toward zero
 		}
+#else
+		return RValue<Float>(V(lowerTrunc(V(x.value))));
+#endif
 	}
 
 	RValue<Float> Frac(RValue<Float> x)
@@ -6207,10 +6298,14 @@ namespace sw
 			return x - x86::floorss(x);
 		}
 		else
-#endif
 		{
 			return Float4(Frac(Float4(x))).x;
 		}
+#else
+		// x - floor(x) can be 1.0 for very small negative x.
+		// Clamp against the value just below 1.0.
+		return Min(x - Floor(x), As<Float>(Int(0x3F7FFFFF)));
+#endif
 	}
 
 	RValue<Float> Floor(RValue<Float> x)
@@ -6221,10 +6316,12 @@ namespace sw
 			return x86::floorss(x);
 		}
 		else
-#endif
 		{
 			return Float4(Floor(Float4(x))).x;
 		}
+#else
+		return RValue<Float>(V(lowerFloor(V(x.value))));
+#endif
 	}
 
 	RValue<Float> Ceil(RValue<Float> x)
@@ -6642,10 +6739,12 @@ namespace sw
 			return x86::roundps(x, 0);
 		}
 		else
-#endif
 		{
 			return Float4(RoundInt(x));
 		}
+#else
+		return RValue<Float4>(V(lowerRound(V(x.value))));
+#endif
 	}
 
 	RValue<Float4> Trunc(RValue<Float4> x)
@@ -6656,16 +6755,19 @@ namespace sw
 			return x86::roundps(x, 3);
 		}
 		else
-#endif
 		{
 			return Float4(Int4(x));
 		}
+#else
+		return RValue<Float4>(V(lowerTrunc(V(x.value))));
+#endif
 	}
 
 	RValue<Float4> Frac(RValue<Float4> x)
 	{
 		Float4 frc;
 
+#if defined(__i386__) || defined(__x86_64__)
 		if(CPUID::supportsSSE4_1())
 		{
 			frc = x - Floor(x);
@@ -6676,6 +6778,9 @@ namespace sw
 
 			frc += As<Float4>(As<Int4>(CmpNLE(Float4(0.0f), frc)) & As<Int4>(Float4(1.0f)));   // Add 1.0 if negative.
 		}
+#else
+		frc = x - Floor(x);
+#endif
 
 		// x - floor(x) can be 1.0 for very small negative x.
 		// Clamp against the value just below 1.0.
@@ -6690,10 +6795,12 @@ namespace sw
 			return x86::floorps(x);
 		}
 		else
-#endif
 		{
 			return x - Frac(x);
 		}
+#else
+		return RValue<Float4>(V(lowerFloor(V(x.value))));
+#endif
 	}
 
 	RValue<Float4> Ceil(RValue<Float4> x)
