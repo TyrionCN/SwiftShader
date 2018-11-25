@@ -14,7 +14,7 @@
 
 #include "FrameBufferDD.hpp"
 
-#include "Common/Debug.hpp"
+#include "System/Debug.hpp"
 
 namespace sw
 {
@@ -106,13 +106,12 @@ namespace sw
 
 			switch(ddsd.ddpfPixelFormat.dwRGBBitCount)
 			{
-			case 32: format = FORMAT_X8R8G8B8; break;
-			case 24: format = FORMAT_R8G8B8;   break;
-			case 16: format = FORMAT_R5G6B5;   break;
-			default: format = FORMAT_NULL;     break;
+			case 32: format = VK_FORMAT_B8G8R8A8_UNORM;      break;
+			case 16: format = VK_FORMAT_R5G6B5_UNORM_PACK16; break;
+			default: format = VK_FORMAT_UNDEFINED;           break;
 			}
 
-			if((result != DD_OK && result != DDERR_PRIMARYSURFACEALREADYEXISTS) || (format == FORMAT_NULL))
+			if((result != DD_OK && result != DDERR_PRIMARYSURFACEALREADYEXISTS) || (format == VK_FORMAT_UNDEFINED))
 			{
 				assert(!"Failed to initialize graphics: Incompatible display mode.");
 			}
@@ -202,27 +201,21 @@ namespace sw
 
 		directDraw->SetCooperativeLevel(windowHandle, DDSCL_EXCLUSIVE | DDSCL_FULLSCREEN);
 
-		long result;
+		long result = DD_FALSE;
 
 		do
 		{
-			format = FORMAT_X8R8G8B8;
+			format = VK_FORMAT_B8G8R8A8_UNORM;
 			result = directDraw->SetDisplayMode(width, height, 32);
 
 			if(result == DDERR_INVALIDMODE)
 			{
-				format = FORMAT_R8G8B8;
-				result = directDraw->SetDisplayMode(width, height, 24);
+				format = VK_FORMAT_R5G6B5_UNORM_PACK16;
+				result = directDraw->SetDisplayMode(width, height, 16);
 
 				if(result == DDERR_INVALIDMODE)
 				{
-					format = FORMAT_R5G6B5;
-					result = directDraw->SetDisplayMode(width, height, 16);
-
-					if(result == DDERR_INVALIDMODE)
-					{
-						assert(!"Failed to initialize graphics: Display mode not supported.");
-					}
+					assert(!"Failed to initialize graphics: Display mode not supported.");
 				}
 			}
 

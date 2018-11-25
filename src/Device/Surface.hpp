@@ -16,8 +16,9 @@
 #define sw_Surface_hpp
 
 #include "Color.hpp"
-#include "Main/Config.hpp"
-#include "Common/Resource.hpp"
+#include "Device/Config.hpp"
+#include "System/Resource.hpp"
+#include <vulkan/vulkan.h>
 
 namespace sw
 {
@@ -60,173 +61,6 @@ namespace sw
 	typedef SliceRectT<int> SliceRect;
 	typedef SliceRectT<float> SliceRectF;
 
-	enum Format : unsigned char
-	{
-		FORMAT_NULL,
-
-		FORMAT_A8,
-		FORMAT_R8I,
-		FORMAT_R8UI,
-		FORMAT_R8_SNORM,
-		FORMAT_R8,
-		FORMAT_R16I,
-		FORMAT_R16UI,
-		FORMAT_R32I,
-		FORMAT_R32UI,
-		FORMAT_R3G3B2,
-		FORMAT_A8R3G3B2,
-		FORMAT_X4R4G4B4,
-		FORMAT_A4R4G4B4,
-		FORMAT_R4G4B4A4,
-		FORMAT_R5G6B5,
-		FORMAT_R8G8B8,
-		FORMAT_B8G8R8,
-		FORMAT_X8R8G8B8,
-		FORMAT_A8R8G8B8,
-		FORMAT_X8B8G8R8I,
-		FORMAT_X8B8G8R8UI,
-		FORMAT_X8B8G8R8_SNORM,
-		FORMAT_X8B8G8R8,
-		FORMAT_A8B8G8R8I,
-		FORMAT_A8B8G8R8UI,
-		FORMAT_A8B8G8R8_SNORM,
-		FORMAT_A8B8G8R8,
-		FORMAT_SRGB8_X8,
-		FORMAT_SRGB8_A8,
-		FORMAT_X1R5G5B5,
-		FORMAT_A1R5G5B5,
-		FORMAT_R5G5B5A1,
-		FORMAT_G8R8I,
-		FORMAT_G8R8UI,
-		FORMAT_G8R8_SNORM,
-		FORMAT_G8R8,
-		FORMAT_G16R16,
-		FORMAT_G16R16I,
-		FORMAT_G16R16UI,
-		FORMAT_G32R32I,
-		FORMAT_G32R32UI,
-		FORMAT_A2R10G10B10,
-		FORMAT_A2B10G10R10,
-		FORMAT_A2B10G10R10UI,
-		FORMAT_A16B16G16R16,
-		FORMAT_X16B16G16R16I,
-		FORMAT_X16B16G16R16UI,
-		FORMAT_A16B16G16R16I,
-		FORMAT_A16B16G16R16UI,
-		FORMAT_X32B32G32R32I,
-		FORMAT_X32B32G32R32UI,
-		FORMAT_A32B32G32R32I,
-		FORMAT_A32B32G32R32UI,
-		// Paletted formats
-		FORMAT_P8,
-		FORMAT_A8P8,
-		// Compressed formats
-		FORMAT_DXT1,
-		FORMAT_DXT3,
-		FORMAT_DXT5,
-		FORMAT_ATI1,
-		FORMAT_ATI2,
-		FORMAT_ETC1,
-		FORMAT_R11_EAC,
-		FORMAT_SIGNED_R11_EAC,
-		FORMAT_RG11_EAC,
-		FORMAT_SIGNED_RG11_EAC,
-		FORMAT_RGB8_ETC2,
-		FORMAT_SRGB8_ETC2,
-		FORMAT_RGB8_PUNCHTHROUGH_ALPHA1_ETC2,
-		FORMAT_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2,
-		FORMAT_RGBA8_ETC2_EAC,
-		FORMAT_SRGB8_ALPHA8_ETC2_EAC,
-		FORMAT_RGBA_ASTC_4x4_KHR,
-		FORMAT_RGBA_ASTC_5x4_KHR,
-		FORMAT_RGBA_ASTC_5x5_KHR,
-		FORMAT_RGBA_ASTC_6x5_KHR,
-		FORMAT_RGBA_ASTC_6x6_KHR,
-		FORMAT_RGBA_ASTC_8x5_KHR,
-		FORMAT_RGBA_ASTC_8x6_KHR,
-		FORMAT_RGBA_ASTC_8x8_KHR,
-		FORMAT_RGBA_ASTC_10x5_KHR,
-		FORMAT_RGBA_ASTC_10x6_KHR,
-		FORMAT_RGBA_ASTC_10x8_KHR,
-		FORMAT_RGBA_ASTC_10x10_KHR,
-		FORMAT_RGBA_ASTC_12x10_KHR,
-		FORMAT_RGBA_ASTC_12x12_KHR,
-		FORMAT_SRGB8_ALPHA8_ASTC_4x4_KHR,
-		FORMAT_SRGB8_ALPHA8_ASTC_5x4_KHR,
-		FORMAT_SRGB8_ALPHA8_ASTC_5x5_KHR,
-		FORMAT_SRGB8_ALPHA8_ASTC_6x5_KHR,
-		FORMAT_SRGB8_ALPHA8_ASTC_6x6_KHR,
-		FORMAT_SRGB8_ALPHA8_ASTC_8x5_KHR,
-		FORMAT_SRGB8_ALPHA8_ASTC_8x6_KHR,
-		FORMAT_SRGB8_ALPHA8_ASTC_8x8_KHR,
-		FORMAT_SRGB8_ALPHA8_ASTC_10x5_KHR,
-		FORMAT_SRGB8_ALPHA8_ASTC_10x6_KHR,
-		FORMAT_SRGB8_ALPHA8_ASTC_10x8_KHR,
-		FORMAT_SRGB8_ALPHA8_ASTC_10x10_KHR,
-		FORMAT_SRGB8_ALPHA8_ASTC_12x10_KHR,
-		FORMAT_SRGB8_ALPHA8_ASTC_12x12_KHR,
-		// Floating-point formats
-		FORMAT_A16F,
-		FORMAT_R16F,
-		FORMAT_G16R16F,
-		FORMAT_B16G16R16F,
-		FORMAT_X16B16G16R16F,
-		FORMAT_A16B16G16R16F,
-		FORMAT_X16B16G16R16F_UNSIGNED,
-		FORMAT_A32F,
-		FORMAT_R32F,
-		FORMAT_G32R32F,
-		FORMAT_B32G32R32F,
-		FORMAT_X32B32G32R32F,
-		FORMAT_A32B32G32R32F,
-		FORMAT_X32B32G32R32F_UNSIGNED,
-		// Bump map formats
-		FORMAT_V8U8,
-		FORMAT_L6V5U5,
-		FORMAT_Q8W8V8U8,
-		FORMAT_X8L8V8U8,
-		FORMAT_A2W10V10U10,
-		FORMAT_V16U16,
-		FORMAT_A16W16V16U16,
-		FORMAT_Q16W16V16U16,
-		// Luminance formats
-		FORMAT_L8,
-		FORMAT_A4L4,
-		FORMAT_L16,
-		FORMAT_A8L8,
-		FORMAT_L16F,
-		FORMAT_A16L16F,
-		FORMAT_L32F,
-		FORMAT_A32L32F,
-		// Depth/stencil formats
-		FORMAT_D16,
-		FORMAT_D32,
-		FORMAT_D24X8,
-		FORMAT_D24S8,
-		FORMAT_D24FS8,
-		FORMAT_D32F,                 // Quad layout
-		FORMAT_D32FS8,               // Quad layout
-		FORMAT_D32F_COMPLEMENTARY,   // Quad layout, 1 - z
-		FORMAT_D32FS8_COMPLEMENTARY, // Quad layout, 1 - z
-		FORMAT_D32F_LOCKABLE,        // Linear layout
-		FORMAT_D32FS8_TEXTURE,       // Linear layout, no PCF
-		FORMAT_D32F_SHADOW,          // Linear layout, PCF
-		FORMAT_D32FS8_SHADOW,        // Linear layout, PCF
-		FORMAT_DF24S8,
-		FORMAT_DF16S8,
-		FORMAT_INTZ,
-		FORMAT_S8,
-		// Quad layout framebuffer
-		FORMAT_X8G8R8B8Q,
-		FORMAT_A8G8R8B8Q,
-		// YUV formats
-		FORMAT_YV12_BT601,
-		FORMAT_YV12_BT709,
-		FORMAT_YV12_JFIF,    // Full-swing BT.601
-
-		FORMAT_LAST = FORMAT_YV12_JFIF
-	};
-
 	enum Lock
 	{
 		LOCK_UNLOCKED,
@@ -237,7 +71,7 @@ namespace sw
 		LOCK_UPDATE   // Write access which doesn't dirty the buffer, because it's being updated with the sibling's data.
 	};
 
-	class [[clang::lto_visibility_public]] Surface
+	class Surface
 	{
 	private:
 		struct Buffer
@@ -270,19 +104,19 @@ namespace sw
 			int sliceB;
 			int sliceP;
 
-			Format format;
+			VkFormat format;
 			AtomicInt lock;
 
 			bool dirty;   // Sibling internal/external buffer doesn't match.
 		};
 
 	protected:
-		Surface(int width, int height, int depth, Format format, void *pixels, int pitch, int slice);
-		Surface(Resource *texture, int width, int height, int depth, int border, int samples, Format format, bool lockable, bool renderTarget, int pitchP = 0);
+		Surface(int width, int height, int depth, VkFormat format, void *pixels, int pitch, int slice);
+		Surface(Resource *texture, int width, int height, int depth, int border, int samples, VkFormat format, bool lockable, bool renderTarget, int pitchP = 0);
 
 	public:
-		static Surface *create(int width, int height, int depth, Format format, void *pixels, int pitch, int slice);
-		static Surface *create(Resource *texture, int width, int height, int depth, int border, int samples, Format format, bool lockable, bool renderTarget, int pitchP = 0);
+		static Surface *create(int width, int height, int depth, VkFormat format, void *pixels, int pitch, int slice);
+		static Surface *create(Resource *texture, int width, int height, int depth, int border, int samples, VkFormat format, bool lockable, bool renderTarget, int pitchP = 0);
 
 		virtual ~Surface() = 0;
 
@@ -292,7 +126,7 @@ namespace sw
 		inline int getHeight() const;
 		inline int getDepth() const;
 		inline int getBorder() const;
-		inline Format getFormat(bool internal = false) const;
+		inline VkFormat getFormat(bool internal = false) const;
 		inline int getPitchB(bool internal = false) const;
 		inline int getPitchP(bool internal = false) const;
 		inline int getSliceB(bool internal = false) const;
@@ -300,7 +134,7 @@ namespace sw
 
 		void *lockExternal(int x, int y, int z, Lock lock, Accessor client);
 		void unlockExternal();
-		inline Format getExternalFormat() const;
+		inline VkFormat getExternalFormat() const;
 		inline int getExternalPitchB() const;
 		inline int getExternalPitchP() const;
 		inline int getExternalSliceB() const;
@@ -308,7 +142,7 @@ namespace sw
 
 		virtual void *lockInternal(int x, int y, int z, Lock lock, Accessor client) = 0;
 		virtual void unlockInternal() = 0;
-		inline Format getInternalFormat() const;
+		inline VkFormat getInternalFormat() const;
 		inline int getInternalPitchB() const;
 		inline int getInternalPitchP() const;
 		inline int getInternalSliceB() const;
@@ -316,7 +150,7 @@ namespace sw
 
 		void *lockStencil(int x, int y, int front, Accessor client);
 		void unlockStencil();
-		inline Format getStencilFormat() const;
+		inline VkFormat getStencilFormat() const;
 		inline int getStencilPitchB() const;
 		inline int getStencilSliceB() const;
 
@@ -350,7 +184,6 @@ namespace sw
 
 		bool hasStencil() const;
 		bool hasDepth() const;
-		bool hasPalette() const;
 		bool isRenderTarget() const;
 
 		bool hasDirtyContents() const;
@@ -358,31 +191,28 @@ namespace sw
 		inline bool isExternalDirty() const;
 		Resource *getResource();
 
-		static int bytes(Format format);
-		static int pitchB(int width, int border, Format format, bool target);
-		static int pitchP(int width, int border, Format format, bool target);
-		static int sliceB(int width, int height, int border, Format format, bool target);
-		static int sliceP(int width, int height, int border, Format format, bool target);
-		static size_t size(int width, int height, int depth, int border, int samples, Format format);
+		static int bytes(VkFormat format);
+		static int pitchB(int width, int border, VkFormat format, bool target);
+		static int pitchP(int width, int border, VkFormat format, bool target);
+		static int sliceB(int width, int height, int border, VkFormat format, bool target);
+		static int sliceP(int width, int height, int border, VkFormat format, bool target);
+		static size_t size(int width, int height, int depth, int border, int samples, VkFormat format);
 
-		static bool isStencil(Format format);
-		static bool isDepth(Format format);
-		static bool hasQuadLayout(Format format);
-		static bool isPalette(Format format);
+		static bool isStencil(VkFormat format);
+		static bool isDepth(VkFormat format);
+		static bool hasQuadLayout(VkFormat format);
 
-		static bool isFloatFormat(Format format);
-		static bool isUnsignedComponent(Format format, int component);
-		static bool isSRGBreadable(Format format);
-		static bool isSRGBwritable(Format format);
-		static bool isSRGBformat(Format format);
-		static bool isCompressed(Format format);
-		static bool isSignedNonNormalizedInteger(Format format);
-		static bool isUnsignedNonNormalizedInteger(Format format);
-		static bool isNonNormalizedInteger(Format format);
-		static bool isNormalizedInteger(Format format);
-		static int componentCount(Format format);
-
-		static void setTexturePalette(unsigned int *palette);
+		static bool isFloatFormat(VkFormat format);
+		static bool isUnsignedComponent(VkFormat format, int component);
+		static bool isSRGBreadable(VkFormat format);
+		static bool isSRGBwritable(VkFormat format);
+		static bool isSRGBformat(VkFormat format);
+		static bool isCompressed(VkFormat format);
+		static bool isSignedNonNormalizedInteger(VkFormat format);
+		static bool isUnsignedNonNormalizedInteger(VkFormat format);
+		static bool isNonNormalizedInteger(VkFormat format);
+		static bool isNormalizedInteger(VkFormat format);
+		static int componentCount(VkFormat format);
 
 	private:
 		sw::Resource *resource;
@@ -465,13 +295,6 @@ namespace sw
 			};
 		};
 
-		static void decodeR8G8B8(Buffer &destination, Buffer &source);
-		static void decodeX1R5G5B5(Buffer &destination, Buffer &source);
-		static void decodeA1R5G5B5(Buffer &destination, Buffer &source);
-		static void decodeX4R4G4B4(Buffer &destination, Buffer &source);
-		static void decodeA4R4G4B4(Buffer &destination, Buffer &source);
-		static void decodeP8(Buffer &destination, Buffer &source);
-
 		static void decodeDXT1(Buffer &internal, Buffer &external);
 		static void decodeDXT3(Buffer &internal, Buffer &external);
 		static void decodeDXT5(Buffer &internal, Buffer &external);
@@ -483,11 +306,11 @@ namespace sw
 
 		static void update(Buffer &destination, Buffer &source);
 		static void genericUpdate(Buffer &destination, Buffer &source);
-		static void *allocateBuffer(int width, int height, int depth, int border, int samples, Format format);
+		static void *allocateBuffer(int width, int height, int depth, int border, int samples, VkFormat format);
 		static void memfill4(void *buffer, int pattern, int bytes);
 
 		bool identicalBuffers() const;
-		Format selectInternalFormat(Format format) const;
+		VkFormat selectInternalFormat(VkFormat format) const;
 
 		void resolve();
 
@@ -499,10 +322,6 @@ namespace sw
 		const bool renderTarget;
 
 		bool dirtyContents;   // Sibling surfaces need updating (mipmaps / cube borders).
-		unsigned int paletteUsed;
-
-		static unsigned int *palette;   // FIXME: Not multi-device safe
-		static unsigned int paletteID;
 
 		bool hasParent;
 		bool ownExternal;
@@ -544,7 +363,7 @@ namespace sw
 		return internal.border;
 	}
 
-	Format Surface::getFormat(bool internal) const
+	VkFormat Surface::getFormat(bool internal) const
 	{
 		return internal ? getInternalFormat() : getExternalFormat();
 	}
@@ -569,7 +388,7 @@ namespace sw
 		return internal ? getInternalSliceP() : getExternalSliceP();
 	}
 
-	Format Surface::getExternalFormat() const
+	VkFormat Surface::getExternalFormat() const
 	{
 		return external.format;
 	}
@@ -594,7 +413,7 @@ namespace sw
 		return external.sliceP;
 	}
 
-	Format Surface::getInternalFormat() const
+	VkFormat Surface::getInternalFormat() const
 	{
 		return internal.format;
 	}
@@ -619,7 +438,7 @@ namespace sw
 		return internal.sliceP;
 	}
 
-	Format Surface::getStencilFormat() const
+	VkFormat Surface::getStencilFormat() const
 	{
 		return stencil.format;
 	}

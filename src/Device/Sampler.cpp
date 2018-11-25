@@ -16,8 +16,8 @@
 
 #include "Context.hpp"
 #include "Surface.hpp"
-#include "Shader/PixelRoutine.hpp"
-#include "Common/Debug.hpp"
+#include "Pipeline/PixelRoutine.hpp"
+#include "System/Debug.hpp"
 
 #include <memory.h>
 #include <string.h>
@@ -49,8 +49,8 @@ namespace sw
 			}
 		}
 
-		externalTextureFormat = FORMAT_NULL;
-		internalTextureFormat = FORMAT_NULL;
+		externalTextureFormat = VK_FORMAT_UNDEFINED;
+		internalTextureFormat = VK_FORMAT_UNDEFINED;
 		textureType = TEXTURE_NULL;
 
 		textureFilter = FILTER_LINEAR;
@@ -222,9 +222,7 @@ namespace sw
 				mipmap.sliceP[2] = sliceP;
 				mipmap.sliceP[3] = sliceP;
 
-				if(internalTextureFormat == FORMAT_YV12_BT601 ||
-				   internalTextureFormat == FORMAT_YV12_BT709 ||
-				   internalTextureFormat == FORMAT_YV12_JFIF)
+				if(internalTextureFormat == VK_FORMAT_G8_B8R8_2PLANE_420_UNORM)
 				{
 					unsigned int YStride = pitchP;
 					unsigned int YSize = YStride * height;
@@ -401,16 +399,6 @@ namespace sw
 		return textureType == TEXTURE_3D || textureType == TEXTURE_2D_ARRAY;
 	}
 
-	void Sampler::setSyncRequired(bool isSyncRequired)
-	{
-		syncRequired = isSyncRequired;
-	}
-
-	bool Sampler::requiresSync() const
-	{
-		return syncRequired;
-	}
-
 	const Texture &Sampler::getTextureData()
 	{
 		return texture;
@@ -502,11 +490,6 @@ namespace sw
 		if(getTextureFilter() == FILTER_GATHER)
 		{
 			return COMPARE_BYPASS;
-		}
-
-		if(internalTextureFormat == FORMAT_D32FS8_SHADOW)
-		{
-			return COMPARE_LESSEQUAL;
 		}
 
 		return compare;

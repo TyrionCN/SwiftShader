@@ -14,10 +14,10 @@
 
 #include "FrameBuffer.hpp"
 
-#include "Renderer/Surface.hpp"
+#include "Device/Surface.hpp"
 #include "Reactor/Reactor.hpp"
-#include "Common/Timer.hpp"
-#include "Common/Debug.hpp"
+#include "System/Timer.hpp"
+#include "System/Debug.hpp"
 
 #include <stdio.h>
 #include <string.h>
@@ -40,7 +40,7 @@ namespace sw
 
 		this->width = width;
 		this->height = height;
-		format = FORMAT_X8R8G8B8;
+		format = VK_FORMAT_B8G8R8A8_UNORM;
 		stride = 0;
 
 		windowed = !fullscreen || forceWindowed;
@@ -187,15 +187,13 @@ namespace sw
 
 				switch(state.destFormat)
 				{
-				case FORMAT_X8R8G8B8:
-				case FORMAT_A8R8G8B8:
+				case VK_FORMAT_B8G8R8A8_UNORM:
 					{
 						Int x = x0;
 
 						switch(state.sourceFormat)
 						{
-						case FORMAT_X8R8G8B8:
-						case FORMAT_A8R8G8B8:
+						case VK_FORMAT_B8G8R8A8_UNORM:
 							For(, x < width - 3, x += 4)
 							{
 								*Pointer<Int4>(d, 1) = *Pointer<Int4>(s, sStride % 16 ? 1 : 16);
@@ -204,8 +202,7 @@ namespace sw
 								d += 4 * dBytes;
 							}
 							break;
-						case FORMAT_X8B8G8R8:
-						case FORMAT_A8B8G8R8:
+						case VK_FORMAT_R8G8B8A8_UNORM:
 							For(, x < width - 3, x += 4)
 							{
 								Int4 bgra = *Pointer<Int4>(s, sStride % 16 ? 1 : 16);
@@ -218,7 +215,7 @@ namespace sw
 								d += 4 * dBytes;
 							}
 							break;
-						case FORMAT_A16B16G16R16:
+						case VK_FORMAT_R16G16B16A16_UNORM:
 							For(, x < width - 1, x += 2)
 							{
 								Short4 c0 = As<UShort4>(Swizzle(*Pointer<Short4>(s + 0), 0xC6)) >> 8;
@@ -230,7 +227,7 @@ namespace sw
 								d += 2 * dBytes;
 							}
 							break;
-						case FORMAT_R5G6B5:
+						case VK_FORMAT_R5G6B5_UNORM_PACK16:
 							For(, x < width - 3, x += 4)
 							{
 								Int4 rgb = Int4(*Pointer<Short4>(s));
@@ -252,12 +249,10 @@ namespace sw
 						{
 							switch(state.sourceFormat)
 							{
-							case FORMAT_X8R8G8B8:
-							case FORMAT_A8R8G8B8:
+							case VK_FORMAT_B8G8R8A8_UNORM:
 								*Pointer<Int>(d) = *Pointer<Int>(s);
 								break;
-							case FORMAT_X8B8G8R8:
-							case FORMAT_A8B8G8R8:
+							case VK_FORMAT_R8G8B8A8_UNORM:
 								{
 									Int rgba = *Pointer<Int>(s);
 
@@ -266,14 +261,14 @@ namespace sw
 									                   (rgba & Int(0xFF00FF00));
 								}
 								break;
-							case FORMAT_A16B16G16R16:
+							case VK_FORMAT_R16G16B16A16_UNORM:
 								{
 									Short4 c = As<UShort4>(Swizzle(*Pointer<Short4>(s), 0xC6)) >> 8;
 
 									*Pointer<Int>(d) = Int(As<Int2>(PackUnsigned(c, c)));
 								}
 								break;
-							case FORMAT_R5G6B5:
+							case VK_FORMAT_R5G6B5_UNORM_PACK16:
 								{
 									Int rgb = Int(*Pointer<Short>(s));
 
@@ -293,17 +288,14 @@ namespace sw
 						}
 					}
 					break;
-				case FORMAT_X8B8G8R8:
-				case FORMAT_A8B8G8R8:
-				case FORMAT_SRGB8_X8:
-				case FORMAT_SRGB8_A8:
+				case VK_FORMAT_R8G8B8A8_UNORM:
+				case VK_FORMAT_R8G8B8A8_SRGB:
 					{
 						Int x = x0;
 
 						switch(state.sourceFormat)
 						{
-						case FORMAT_X8B8G8R8:
-						case FORMAT_A8B8G8R8:
+						case VK_FORMAT_R8G8B8A8_UNORM:
 							For(, x < width - 3, x += 4)
 							{
 								*Pointer<Int4>(d, 1) = *Pointer<Int4>(s, sStride % 16 ? 1 : 16);
@@ -312,8 +304,7 @@ namespace sw
 								d += 4 * dBytes;
 							}
 							break;
-						case FORMAT_X8R8G8B8:
-						case FORMAT_A8R8G8B8:
+						case VK_FORMAT_B8G8R8A8_UNORM:
 							For(, x < width - 3, x += 4)
 							{
 								Int4 bgra = *Pointer<Int4>(s, sStride % 16 ? 1 : 16);
@@ -326,7 +317,7 @@ namespace sw
 								d += 4 * dBytes;
 							}
 							break;
-						case FORMAT_A16B16G16R16:
+						case VK_FORMAT_R16G16B16A16_UNORM:
 							For(, x < width - 1, x += 2)
 							{
 								Short4 c0 = *Pointer<UShort4>(s + 0) >> 8;
@@ -338,7 +329,7 @@ namespace sw
 								d += 2 * dBytes;
 							}
 							break;
-						case FORMAT_R5G6B5:
+						case VK_FORMAT_R5G6B5_UNORM_PACK16:
 							For(, x < width - 3, x += 4)
 							{
 								Int4 rgb = Int4(*Pointer<Short4>(s));
@@ -361,12 +352,10 @@ namespace sw
 						{
 							switch(state.sourceFormat)
 							{
-							case FORMAT_X8B8G8R8:
-							case FORMAT_A8B8G8R8:
+							case VK_FORMAT_R8G8B8A8_UNORM:
 								*Pointer<Int>(d) = *Pointer<Int>(s);
 								break;
-							case FORMAT_X8R8G8B8:
-							case FORMAT_A8R8G8B8:
+							case VK_FORMAT_B8G8R8A8_UNORM:
 								{
 									Int bgra = *Pointer<Int>(s);
 									*Pointer<Int>(d) = ((bgra & Int(0x00FF0000)) >> 16) |
@@ -374,14 +363,14 @@ namespace sw
 									                   (bgra & Int(0xFF00FF00));
 								}
 								break;
-							case FORMAT_A16B16G16R16:
+							case VK_FORMAT_R16G16B16A16_UNORM:
 								{
 									Short4 c = *Pointer<UShort4>(s) >> 8;
 
 									*Pointer<Int>(d) = Int(As<Int2>(PackUnsigned(c, c)));
 								}
 								break;
-							case FORMAT_R5G6B5:
+							case VK_FORMAT_R5G6B5_UNORM_PACK16:
 								{
 									Int rgb = Int(*Pointer<Short>(s));
 
@@ -401,56 +390,13 @@ namespace sw
 						}
 					}
 					break;
-				case FORMAT_R8G8B8:
+				case VK_FORMAT_R5G6B5_UNORM_PACK16:
 					{
 						For(Int x = x0, x < width, x++)
 						{
 							switch(state.sourceFormat)
 							{
-							case FORMAT_X8R8G8B8:
-							case FORMAT_A8R8G8B8:
-								*Pointer<Byte>(d + 0) = *Pointer<Byte>(s + 0);
-								*Pointer<Byte>(d + 1) = *Pointer<Byte>(s + 1);
-								*Pointer<Byte>(d + 2) = *Pointer<Byte>(s + 2);
-								break;
-							case FORMAT_X8B8G8R8:
-							case FORMAT_A8B8G8R8:
-								*Pointer<Byte>(d + 0) = *Pointer<Byte>(s + 2);
-								*Pointer<Byte>(d + 1) = *Pointer<Byte>(s + 1);
-								*Pointer<Byte>(d + 2) = *Pointer<Byte>(s + 0);
-								break;
-							case FORMAT_A16B16G16R16:
-								*Pointer<Byte>(d + 0) = *Pointer<Byte>(s + 5);
-								*Pointer<Byte>(d + 1) = *Pointer<Byte>(s + 3);
-								*Pointer<Byte>(d + 2) = *Pointer<Byte>(s + 1);
-								break;
-							case FORMAT_R5G6B5:
-								{
-									Int rgb = Int(*Pointer<Short>(s));
-
-									*Pointer<Byte>(d + 0) = Byte(((rgb & 0x001F) << 3) | ((rgb & 0x001C) >> 2));
-									*Pointer<Byte>(d + 1) = Byte(((rgb & 0x07E0) << 5) | ((rgb & 0x0600) >> 1));
-									*Pointer<Byte>(d + 2) = Byte(((rgb & 0xF800) << 8) | ((rgb & 0xE000) << 3));
-								}
-								break;
-							default:
-								ASSERT(false);
-								break;
-							}
-
-							s += sBytes;
-							d += dBytes;
-						}
-					}
-					break;
-				case FORMAT_R5G6B5:
-					{
-						For(Int x = x0, x < width, x++)
-						{
-							switch(state.sourceFormat)
-							{
-							case FORMAT_X8R8G8B8:
-							case FORMAT_A8R8G8B8:
+							case VK_FORMAT_B8G8R8A8_UNORM:
 								{
 									Int c = *Pointer<Int>(s);
 
@@ -459,8 +405,7 @@ namespace sw
 									                           (c & 0x000000F8) >> 3);
 								}
 								break;
-							case FORMAT_X8B8G8R8:
-							case FORMAT_A8B8G8R8:
+							case VK_FORMAT_R8G8B8A8_UNORM:
 								{
 									Int c = *Pointer<Int>(s);
 
@@ -469,7 +414,7 @@ namespace sw
 									                           (c & 0x000000F8) << 8);
 								}
 								break;
-							case FORMAT_A16B16G16R16:
+							case VK_FORMAT_R16G16B16A16_UNORM:
 								{
 									Short4 cc = *Pointer<UShort4>(s) >> 8;
 									Int c = Int(As<Int2>(PackUnsigned(cc, cc)));
@@ -479,7 +424,7 @@ namespace sw
 									                           (c & 0x000000F8) << 8);
 								}
 								break;
-							case FORMAT_R5G6B5:
+							case VK_FORMAT_R5G6B5_UNORM_PACK16:
 								*Pointer<Short>(d) = *Pointer<Short>(s);
 								break;
 							default:
@@ -543,18 +488,16 @@ namespace sw
 
 		switch(state.sourceFormat)
 		{
-		case FORMAT_X8R8G8B8:
-		case FORMAT_A8R8G8B8:
+		case VK_FORMAT_B8G8R8A8_UNORM:
 			c2 = Unpack(*Pointer<Byte4>(s));
 			break;
-		case FORMAT_X8B8G8R8:
-		case FORMAT_A8B8G8R8:
+		case VK_FORMAT_R8G8B8A8_UNORM:
 			c2 = Swizzle(Unpack(*Pointer<Byte4>(s)), 0xC6);
 			break;
-		case FORMAT_A16B16G16R16:
+		case VK_FORMAT_R16G16B16A16_UNORM:
 			c2 = Swizzle(*Pointer<Short4>(s), 0xC6);
 			break;
-		case FORMAT_R5G6B5:
+		case VK_FORMAT_R5G6B5_UNORM_PACK16:
 			{
 				Int rgb(*Pointer<Short>(s));
 				rgb = 0xFF000000 |
@@ -581,30 +524,18 @@ namespace sw
 
 		switch(state.destFormat)
 		{
-		case FORMAT_X8R8G8B8:
-		case FORMAT_A8R8G8B8:
+		case VK_FORMAT_B8G8R8A8_UNORM:
 			*Pointer<Byte4>(d) = Byte4(PackUnsigned(c1, c1));
 			break;
-		case FORMAT_X8B8G8R8:
-		case FORMAT_A8B8G8R8:
-		case FORMAT_SRGB8_X8:
-		case FORMAT_SRGB8_A8:
+		case VK_FORMAT_R8G8B8A8_UNORM:
+		case VK_FORMAT_R8G8B8A8_SRGB:
 			{
 				c1 = Swizzle(c1, 0xC6);
 
 				*Pointer<Byte4>(d) = Byte4(PackUnsigned(c1, c1));
 			}
 			break;
-		case FORMAT_R8G8B8:
-			{
-				Int c = Int(As<Int2>(PackUnsigned(c1, c1)));
-
-				*Pointer<Byte>(d + 0) = Byte(c >> 0);
-				*Pointer<Byte>(d + 1) = Byte(c >> 8);
-				*Pointer<Byte>(d + 2) = Byte(c >> 16);
-			}
-			break;
-		case FORMAT_R5G6B5:
+		case VK_FORMAT_R5G6B5_UNORM_PACK16:
 			{
 				Int c = Int(As<Int2>(PackUnsigned(c1, c1)));
 

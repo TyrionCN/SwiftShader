@@ -14,7 +14,7 @@
 
 #include "FrameBufferGDI.hpp"
 
-#include "Common/Debug.hpp"
+#include "System/Debug.hpp"
 
 namespace sw
 {
@@ -37,7 +37,7 @@ namespace sw
 
 		init(this->windowHandle);
 
-		format = FORMAT_X8R8G8B8;
+		format = VK_FORMAT_B8G8R8A8_UNORM;
 	}
 
 	FrameBufferGDI::~FrameBufferGDI()
