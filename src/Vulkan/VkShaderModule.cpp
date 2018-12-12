@@ -13,7 +13,8 @@
 // limitations under the License.
 
 #include "VkShaderModule.hpp"
-#include <memory.h>
+
+#include <cstring>
 
 namespace vk
 {
@@ -31,6 +32,12 @@ void ShaderModule::destroy(const VkAllocationCallbacks* pAllocator)
 size_t ShaderModule::ComputeRequiredAllocationSize(const VkShaderModuleCreateInfo* pCreateInfo)
 {
 	return pCreateInfo->codeSize;
+}
+
+rr::Routine* ShaderModule::compile(const VkAllocationCallbacks* pAllocator)
+{
+	// FIXME: Compile the code here
+	return nullptr;
 }
 
 } // namespace vk

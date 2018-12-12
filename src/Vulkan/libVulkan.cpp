@@ -45,7 +45,9 @@ extern "C"
 {
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance instance, const char* pName)
 {
-	return vk::GetProcAddr(pName);
+	TRACE("(VkInstance instance = 0x%X, const char* pName = 0x%X)", instance, pName);
+
+	return vk::GetInstanceProcAddr(instance, pName);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkInstance* pInstance)
@@ -186,13 +188,15 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceMemoryProperties(VkPhysicalDevice 
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance, const char* pName)
 {
 	TRACE("(VkInstance instance = 0x%X, const char* pName = 0x%X)", instance, pName);
-	return vk::GetProcAddr(pName);
+
+	return vk::GetInstanceProcAddr(instance, pName);
 }
 
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetDeviceProcAddr(VkDevice device, const char* pName)
 {
 	TRACE("(VkDevice device = 0x%X, const char* pName = 0x%X)", device, pName);
-	return vk::GetProcAddr(pName);
+
+	return vk::GetDeviceProcAddr(device, pName);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDevice* pDevice)
@@ -200,14 +204,17 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, c
 	TRACE("(VkPhysicalDevice physicalDevice = 0x%X, const VkDeviceCreateInfo* pCreateInfo = 0x%X, const VkAllocationCallbacks* pAllocator = 0x%X, VkDevice* pDevice = 0x%X)",
 		physicalDevice, pCreateInfo, pAllocator, pDevice);
 
-	if(pCreateInfo->enabledLayerCount || pCreateInfo->enabledExtensionCount)
+	if(pCreateInfo->enabledLayerCount)
 	{
-		UNIMPLEMENTED();
+		// "The ppEnabledLayerNames and enabledLayerCount members of VkDeviceCreateInfo are deprecated and their values must be ignored by implementations."
+		UNIMPLEMENTED();   // TODO(b/119321052): UNIMPLEMENTED() should be used only for features that must still be implemented. Use a more informational macro here.
 	}
 
-	if(pCreateInfo->pNext)
+	const VkBaseInStructure* extensionCreateInfo = reinterpret_cast<const VkBaseInStructure*>(pCreateInfo->pNext);
+
+	while(extensionCreateInfo)
 	{
-		switch(*reinterpret_cast<const VkStructureType*>(pCreateInfo->pNext))
+		switch(extensionCreateInfo->sType)
 		{
 		case VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO:
 			// According to the Vulkan spec, section 2.7.2. Implicit Valid Usage:
@@ -216,9 +223,59 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, c
 			//  internal use by the loader, and do not have corresponding
 			//  Vulkan structures in this Specification."
 			break;
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2:
+			{
+				ASSERT(!pCreateInfo->pEnabledFeatures);   // "If the pNext chain includes a VkPhysicalDeviceFeatures2 structure, then pEnabledFeatures must be NULL"
+
+				const VkPhysicalDeviceFeatures2* physicalDeviceFeatures2 = reinterpret_cast<const VkPhysicalDeviceFeatures2*>(extensionCreateInfo);
+
+				if(!vk::Cast(physicalDevice)->hasFeatures(physicalDeviceFeatures2->features))
+				{
+					return VK_ERROR_FEATURE_NOT_PRESENT;
+				}
+			}
+			break;
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES:
+			{
+				const VkPhysicalDeviceSamplerYcbcrConversionFeatures* samplerYcbcrConversionFeatures = reinterpret_cast<const VkPhysicalDeviceSamplerYcbcrConversionFeatures*>(extensionCreateInfo);
+
+				if(samplerYcbcrConversionFeatures->samplerYcbcrConversion == VK_TRUE)
+				{
+					return VK_ERROR_FEATURE_NOT_PRESENT;
+				}
+			}
+			break;
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES:
+			{
+				const VkPhysicalDevice16BitStorageFeatures* storage16BitFeatures = reinterpret_cast<const VkPhysicalDevice16BitStorageFeatures*>(extensionCreateInfo);
+
+				if(storage16BitFeatures->storageBuffer16BitAccess == VK_TRUE ||
+				   storage16BitFeatures->uniformAndStorageBuffer16BitAccess == VK_TRUE ||
+				   storage16BitFeatures->storagePushConstant16 == VK_TRUE ||
+				   storage16BitFeatures->storageInputOutput16 == VK_TRUE)
+				{
+					return VK_ERROR_FEATURE_NOT_PRESENT;
+				}
+			}
+			break;
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTER_FEATURES:
+			{
+				const VkPhysicalDeviceVariablePointerFeatures* variablePointerFeatures = reinterpret_cast<const VkPhysicalDeviceVariablePointerFeatures*>(extensionCreateInfo);
+
+				if(variablePointerFeatures->variablePointersStorageBuffer == VK_TRUE ||
+				   variablePointerFeatures->variablePointers == VK_TRUE)
+				{
+					return VK_ERROR_FEATURE_NOT_PRESENT;
+				}
+			}
+			break;
 		default:
-			UNIMPLEMENTED();
+			// "the [driver] must skip over, without processing (other than reading the sType and pNext members) any structures in the chain with sType values not defined by [supported extenions]"
+			UNIMPLEMENTED();   // TODO(b/119321052): UNIMPLEMENTED() should be used only for features that must still be implemented. Use a more informational macro here.
+			break;
 		}
+
+		extensionCreateInfo = extensionCreateInfo->pNext;
 	}
 
 	ASSERT(pCreateInfo->queueCreateInfoCount > 0);
@@ -227,6 +284,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, c
 	{
 		if(!vk::Cast(physicalDevice)->hasFeatures(*(pCreateInfo->pEnabledFeatures)))
 		{
+			UNIMPLEMENTED();
 			return VK_ERROR_FEATURE_NOT_PRESENT;
 		}
 	}
@@ -242,7 +300,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, c
 		}
 
 		ASSERT(queueCreateInfo.queueFamilyIndex < queueFamilyPropertyCount);
-		(void)queueFamilyPropertyCount; // Slence unused variable warning
+		(void)queueFamilyPropertyCount; // Silence unused variable warning
 	}
 
 	vk::Device::CreateInfo deviceCreateInfo =
@@ -369,8 +427,11 @@ VKAPI_ATTR void VKAPI_CALL vkGetDeviceQueue(VkDevice device, uint32_t queueFamil
 
 VKAPI_ATTR VkResult VKAPI_CALL vkQueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo* pSubmits, VkFence fence)
 {
-	TRACE("()");
-	UNIMPLEMENTED();
+	TRACE("(VkQueue queue = 0x%X, uint32_t submitCount = %d, const VkSubmitInfo* pSubmits = 0x%X, VkFence fence = 0x%X)",
+	      queue, submitCount, pSubmits, fence);
+
+	vk::Cast(queue)->submit(submitCount, pSubmits, fence);
+
 	return VK_SUCCESS;
 }
 
@@ -490,7 +551,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBindImageMemory(VkDevice device, VkImage image,
 	TRACE("(VkDevice device = 0x%X, VkImage image = 0x%X, VkDeviceMemory memory = 0x%X, VkDeviceSize memoryOffset = %d)",
 		    device, image, memory, memoryOffset);
 
-	UNIMPLEMENTED();
+	vk::Cast(image)->bind(memory, memoryOffset);
 
 	return VK_SUCCESS;
 }
@@ -508,7 +569,7 @@ VKAPI_ATTR void VKAPI_CALL vkGetImageMemoryRequirements(VkDevice device, VkImage
 	TRACE("(VkDevice device = 0x%X, VkImage image = 0x%X, VkMemoryRequirements* pMemoryRequirements = 0x%X)",
 		    device, image, pMemoryRequirements);
 
-	UNIMPLEMENTED();
+	*pMemoryRequirements = vk::Cast(image)->getMemoryRequirements();
 }
 
 VKAPI_ATTR void VKAPI_CALL vkGetImageSparseMemoryRequirements(VkDevice device, VkImage image, uint32_t* pSparseMemoryRequirementCount, VkSparseImageMemoryRequirements* pSparseMemoryRequirements)
@@ -578,8 +639,11 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetFenceStatus(VkDevice device, VkFence fence)
 
 VKAPI_ATTR VkResult VKAPI_CALL vkWaitForFences(VkDevice device, uint32_t fenceCount, const VkFence* pFences, VkBool32 waitAll, uint64_t timeout)
 {
-	TRACE("()");
-	UNIMPLEMENTED();
+	TRACE("(VkDevice device = 0x%X, uint32_t fenceCount = %d, const VkFence* pFences = 0x%X, VkBool32 waitAll = %d, uint64_t timeout = %d)",
+		device, fenceCount, pFences, waitAll, timeout);
+
+	vk::Cast(device)->waitForFences(fenceCount, pFences, waitAll, timeout);
+
 	return VK_SUCCESS;
 }
 
@@ -838,6 +902,10 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateGraphicsPipelines(VkDevice device, VkPipe
 			pPipelines[i] = VK_NULL_HANDLE;
 			errorResult = result;
 		}
+		else
+		{
+			static_cast<vk::GraphicsPipeline*>(vk::Cast(pPipelines[i]))->compileShaders(pAllocator, &pCreateInfos[i]);
+		}
 	}
 
 	return errorResult;
@@ -1058,9 +1126,13 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAllocateCommandBuffers(VkDevice device, const V
 	TRACE("(VkDevice device = 0x%X, const VkCommandBufferAllocateInfo* pAllocateInfo = 0x%X, VkCommandBuffer* pCommandBuffers = 0x%X)",
 		    device, pAllocateInfo, pCommandBuffers);
 
-	UNIMPLEMENTED();
+	if(pAllocateInfo->pNext)
+	{
+		UNIMPLEMENTED();
+	}
 
-	return VK_SUCCESS;
+	return vk::Cast(pAllocateInfo->commandPool)->allocateCommandBuffers(
+		pAllocateInfo->level, pAllocateInfo->commandBufferCount, pCommandBuffers);
 }
 
 VKAPI_ATTR void VKAPI_CALL vkFreeCommandBuffers(VkDevice device, VkCommandPool commandPool, uint32_t commandBufferCount, const VkCommandBuffer* pCommandBuffers)
@@ -1068,7 +1140,7 @@ VKAPI_ATTR void VKAPI_CALL vkFreeCommandBuffers(VkDevice device, VkCommandPool c
 	TRACE("(VkDevice device = 0x%X, VkCommandPool commandPool = 0x%X, uint32_t commandBufferCount = %d, const VkCommandBuffer* pCommandBuffers = 0x%X)",
 		    device, commandPool, commandBufferCount, pCommandBuffers);
 
-	UNIMPLEMENTED();
+	vk::Cast(commandPool)->freeCommandBuffers(commandBufferCount, pCommandBuffers);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL vkBeginCommandBuffer(VkCommandBuffer commandBuffer, const VkCommandBufferBeginInfo* pBeginInfo)

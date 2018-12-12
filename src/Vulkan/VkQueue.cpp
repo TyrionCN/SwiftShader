@@ -12,13 +12,44 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "VkCommandBuffer.hpp"
+#include "VkFence.hpp"
 #include "VkQueue.hpp"
+#include "VkSemaphore.hpp"
 
 namespace vk
 {
 
 Queue::Queue(uint32_t pFamilyIndex, float pPriority) : familyIndex(pFamilyIndex), priority(pPriority)
 {
+}
+
+void Queue::submit(uint32_t submitCount, const VkSubmitInfo* pSubmits, VkFence fence)
+{
+	for(uint32_t i = 0; i < submitCount; i++)
+	{
+		auto& submitInfo = pSubmits[i];
+		for(uint32_t j = 0; j < submitInfo.waitSemaphoreCount; j++)
+		{
+			vk::Cast(submitInfo.pWaitSemaphores[j])->wait(submitInfo.pWaitDstStageMask[j]);
+		}
+
+		for(uint32_t j = 0; j < submitInfo.commandBufferCount; j++)
+		{
+			vk::Cast(submitInfo.pCommandBuffers[j])->submit();
+		}
+
+		for(uint32_t j = 0; j < submitInfo.signalSemaphoreCount; j++)
+		{
+			vk::Cast(submitInfo.pSignalSemaphores[j])->signal();
+		}
+	}
+
+	// FIXME (b\117835459): signal the fence only once the work is completed
+	if(fence != VK_NULL_HANDLE)
+	{
+		vk::Cast(fence)->signal();
+	}
 }
 
 } // namespace vk
