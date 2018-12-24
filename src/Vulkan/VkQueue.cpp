@@ -16,12 +16,21 @@
 #include "VkFence.hpp"
 #include "VkQueue.hpp"
 #include "VkSemaphore.hpp"
+#include "Device/Renderer.hpp"
 
 namespace vk
 {
 
 Queue::Queue(uint32_t pFamilyIndex, float pPriority) : familyIndex(pFamilyIndex), priority(pPriority)
 {
+	context = new sw::Context();
+	renderer = new sw::Renderer(context, sw::OpenGL, true);
+}
+
+void Queue::destroy()
+{
+	delete context;
+	delete renderer;
 }
 
 void Queue::submit(uint32_t submitCount, const VkSubmitInfo* pSubmits, VkFence fence)
@@ -34,9 +43,13 @@ void Queue::submit(uint32_t submitCount, const VkSubmitInfo* pSubmits, VkFence f
 			vk::Cast(submitInfo.pWaitSemaphores[j])->wait(submitInfo.pWaitDstStageMask[j]);
 		}
 
-		for(uint32_t j = 0; j < submitInfo.commandBufferCount; j++)
 		{
-			vk::Cast(submitInfo.pCommandBuffers[j])->submit();
+			CommandBuffer::ExecutionState executionState;
+			executionState.renderer = renderer;
+			for(uint32_t j = 0; j < submitInfo.commandBufferCount; j++)
+			{
+				vk::Cast(submitInfo.pCommandBuffers[j])->submit(executionState);
+			}
 		}
 
 		for(uint32_t j = 0; j < submitInfo.signalSemaphoreCount; j++)

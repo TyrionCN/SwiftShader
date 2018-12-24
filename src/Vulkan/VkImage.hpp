@@ -25,6 +25,8 @@ namespace sw
 namespace vk
 {
 
+class DeviceMemory;
+
 class Image : public Object<Image, VkImage>
 {
 public:
@@ -34,22 +36,32 @@ public:
 
 	static size_t ComputeRequiredAllocationSize(const VkImageCreateInfo* pCreateInfo);
 
-	VkDeviceSize getStorageSize() const;
 	const VkMemoryRequirements getMemoryRequirements() const;
 	void bind(VkDeviceMemory pDeviceMemory, VkDeviceSize pMemoryOffset);
 	void copyTo(VkImage dstImage, const VkImageCopy& pRegion);
-	void copyTo(VkBuffer dstBuffer, const VkBufferImageCopy& pRegion);
-	void copyFrom(VkBuffer srcBuffer, const VkBufferImageCopy& pRegion);
+	void copyTo(VkBuffer dstBuffer, const VkBufferImageCopy& region);
+	void copyFrom(VkBuffer srcBuffer, const VkBufferImageCopy& region);
+
+	void blit(VkImage dstImage, const VkImageBlit& region, VkFilter filter);
+	void clear(const VkClearValue& clearValue, const VkRect2D& renderArea, const VkImageSubresourceRange& subresourceRange);
+
+	VkImageType              getImageType() const { return imageType; }
+	VkFormat                 getFormat() const { return format; }
 
 private:
-	void* getTexelPointer(const VkOffset3D& offset) const;
-	VkDeviceSize texelOffsetBytesInStorage(const VkOffset3D& offset) const;
-	int rowPitchBytes() const;
-	int slicePitchBytes() const;
-	int bytesPerTexel() const;
+	void copy(VkBuffer buffer, const VkBufferImageCopy& region, bool bufferIsSource);
+	VkDeviceSize getStorageSize(const VkImageAspectFlags& flags) const;
+	void* getTexelPointer(const VkOffset3D& offset, uint32_t baseArrayLayer, const VkImageAspectFlags& flags) const;
+	VkDeviceSize texelOffsetBytesInStorage(const VkOffset3D& offset, uint32_t baseArrayLayer, const VkImageAspectFlags& flags) const;
+	VkDeviceSize getMemoryOffset(const VkImageAspectFlags& flags) const;
+	int rowPitchBytes(const VkImageAspectFlags& flags) const;
+	int slicePitchBytes(const VkImageAspectFlags& flags) const;
+	int bytesPerTexel(const VkImageAspectFlags& flags) const;
+	VkFormat getFormat(const VkImageAspectFlags& flags) const;
 	int getBorder() const;
+	sw::Surface* asSurface(const VkImageAspectFlags& flags) const;
 
-	VkDeviceMemory           deviceMemory = nullptr;
+	DeviceMemory*            deviceMemory = nullptr;
 	VkDeviceSize             memoryOffset = 0;
 	VkImageCreateFlags       flags = 0;
 	VkImageType              imageType = VK_IMAGE_TYPE_2D;
