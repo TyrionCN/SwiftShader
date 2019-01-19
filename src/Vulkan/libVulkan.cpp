@@ -152,6 +152,23 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties(VkPhysic
 	TRACE("(VkPhysicalDevice physicalDevice = 0x%X, VkFormat format = %d, VkImageType type = %d, VkImageTiling tiling = %d, VkImageUsageFlags usage = %d, VkImageCreateFlags flags = %d, VkImageFormatProperties* pImageFormatProperties = 0x%X)",
 			physicalDevice, (int)format, (int)type, (int)tiling, usage, flags, pImageFormatProperties);
 
+	VkFormatProperties properties;
+	vk::Cast(physicalDevice)->getFormatProperties(format, &properties);
+
+	switch (tiling)
+	{
+	case VK_IMAGE_TILING_LINEAR:
+		if (properties.linearTilingFeatures == 0) return VK_ERROR_FORMAT_NOT_SUPPORTED;
+		break;
+
+	case VK_IMAGE_TILING_OPTIMAL:
+		if (properties.optimalTilingFeatures == 0) return VK_ERROR_FORMAT_NOT_SUPPORTED;
+		break;
+
+	default:
+		UNIMPLEMENTED();
+	}
+
 	vk::Cast(physicalDevice)->getImageFormatProperties(format, type, tiling, usage, flags, pImageFormatProperties);
 
 	return VK_SUCCESS;
@@ -455,9 +472,22 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAllocateMemory(VkDevice device, const VkMemoryA
 	TRACE("(VkDevice device = 0x%X, const VkMemoryAllocateInfo* pAllocateInfo = 0x%X, const VkAllocationCallbacks* pAllocator = 0x%X, VkDeviceMemory* pMemory = 0x%X)",
 		    device, pAllocateInfo, pAllocator, pMemory);
 
-	if(pAllocateInfo->pNext)
+	const VkBaseOutStructure* allocationInfo = reinterpret_cast<const VkBaseOutStructure*>(pAllocateInfo->pNext);
+	while(allocationInfo)
 	{
-		UNIMPLEMENTED();
+		switch(allocationInfo->sType)
+		{
+		case VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO:
+			// This can safely be ignored, as the Vulkan spec mentions:
+			// "If the pNext chain includes a VkMemoryDedicatedAllocateInfo structure, then that structure
+			//  includes a handle of the sole buffer or image resource that the memory *can* be bound to."
+			break;
+		default:
+			UNIMPLEMENTED();
+			break;
+		}
+
+		allocationInfo = allocationInfo->pNext;
 	}
 
 	VkResult result = vk::DeviceMemory::Create(pAllocator, pAllocateInfo, pMemory);

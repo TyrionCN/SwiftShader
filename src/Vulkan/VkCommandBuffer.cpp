@@ -220,6 +220,42 @@ private:
 	const VkBufferImageCopy region;
 };
 
+struct ClearColorImage : public CommandBuffer::Command
+{
+	ClearColorImage(VkImage image, const VkClearColorValue& color, const VkImageSubresourceRange& range) :
+		image(image), color(color), range(range)
+	{
+	}
+
+	void play(CommandBuffer::ExecutionState& executionState)
+	{
+		Cast(image)->clear(color, range);
+	}
+
+private:
+	VkImage image;
+	const VkClearColorValue color;
+	const VkImageSubresourceRange range;
+};
+
+struct ClearDepthStencilImage : public CommandBuffer::Command
+{
+	ClearDepthStencilImage(VkImage image, const VkClearDepthStencilValue& depthStencil, const VkImageSubresourceRange& range) :
+		image(image), depthStencil(depthStencil), range(range)
+	{
+	}
+
+	void play(CommandBuffer::ExecutionState& executionState)
+	{
+		Cast(image)->clear(depthStencil, range);
+	}
+
+private:
+	VkImage image;
+	const VkClearDepthStencilValue depthStencil;
+	const VkImageSubresourceRange range;
+};
+
 struct BlitImage : public CommandBuffer::Command
 {
 	BlitImage(VkImage srcImage, VkImage dstImage, const VkImageBlit& region, VkFilter filter) :
@@ -317,6 +353,12 @@ VkResult CommandBuffer::reset(VkCommandPoolResetFlags flags)
 	return VK_SUCCESS;
 }
 
+template<typename T, typename... Args>
+void CommandBuffer::addCommand(Args&&... args)
+{
+	commands->push_back(std::unique_ptr<T>(new T(std::forward<Args>(args)...)));
+}
+
 void CommandBuffer::beginRenderPass(VkRenderPass renderPass, VkFramebuffer framebuffer, VkRect2D renderArea,
                                     uint32_t clearValueCount, const VkClearValue* clearValues, VkSubpassContents contents)
 {
@@ -327,7 +369,7 @@ void CommandBuffer::beginRenderPass(VkRenderPass renderPass, VkFramebuffer frame
 		UNIMPLEMENTED();
 	}
 
-	commands->push_back(std::make_unique<BeginRenderPass>(renderPass, framebuffer, renderArea, clearValueCount, clearValues));
+	addCommand<BeginRenderPass>(renderPass, framebuffer, renderArea, clearValueCount, clearValues);
 }
 
 void CommandBuffer::nextSubpass(VkSubpassContents contents)
@@ -337,7 +379,7 @@ void CommandBuffer::nextSubpass(VkSubpassContents contents)
 
 void CommandBuffer::endRenderPass()
 {
-	commands->push_back(std::make_unique<EndRenderPass>());
+	addCommand<EndRenderPass>();
 }
 
 void CommandBuffer::executeCommands(uint32_t commandBufferCount, const VkCommandBuffer* pCommandBuffers)
@@ -362,7 +404,7 @@ void CommandBuffer::pipelineBarrier(VkPipelineStageFlags srcStageMask, VkPipelin
                                     uint32_t bufferMemoryBarrierCount, const VkBufferMemoryBarrier* pBufferMemoryBarriers,
                                     uint32_t imageMemoryBarrierCount, const VkImageMemoryBarrier* pImageMemoryBarriers)
 {
-	commands->push_back(std::make_unique<PipelineBarrier>());
+	addCommand<PipelineBarrier>();
 }
 
 void CommandBuffer::bindPipeline(VkPipelineBindPoint pipelineBindPoint, VkPipeline pipeline)
@@ -372,7 +414,7 @@ void CommandBuffer::bindPipeline(VkPipelineBindPoint pipelineBindPoint, VkPipeli
 		UNIMPLEMENTED();
 	}
 
-	commands->push_back(std::make_unique<PipelineBind>(pipelineBindPoint, pipeline));
+	addCommand<PipelineBind>(pipelineBindPoint, pipeline);
 }
 
 void CommandBuffer::bindVertexBuffers(uint32_t firstBinding, uint32_t bindingCount,
@@ -380,7 +422,7 @@ void CommandBuffer::bindVertexBuffers(uint32_t firstBinding, uint32_t bindingCou
 {
 	for(uint32_t i = firstBinding; i < (firstBinding + bindingCount); ++i)
 	{
-		commands->push_back(std::make_unique<VertexBufferBind>(i, pBuffers[i], pOffsets[i]));
+		addCommand<VertexBufferBind>(i, pBuffers[i], pOffsets[i]);
 	}
 }
 
@@ -527,7 +569,7 @@ void CommandBuffer::copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, uint32_t 
 
 	for(uint32_t i = 0; i < regionCount; i++)
 	{
-		commands->push_back(std::make_unique<BufferToBufferCopy>(srcBuffer, dstBuffer, pRegions[i]));
+		addCommand<BufferToBufferCopy>(srcBuffer, dstBuffer, pRegions[i]);
 	}
 }
 
@@ -542,7 +584,7 @@ void CommandBuffer::copyImage(VkImage srcImage, VkImageLayout srcImageLayout, Vk
 
 	for(uint32_t i = 0; i < regionCount; i++)
 	{
-		commands->push_back(std::make_unique<ImageToImageCopy>(srcImage, dstImage, pRegions[i]));
+		addCommand<ImageToImageCopy>(srcImage, dstImage, pRegions[i]);
 	}
 }
 
@@ -557,7 +599,7 @@ void CommandBuffer::blitImage(VkImage srcImage, VkImageLayout srcImageLayout, Vk
 
 	for(uint32_t i = 0; i < regionCount; i++)
 	{
-		commands->push_back(std::make_unique<BlitImage>(srcImage, dstImage, pRegions[i], filter));
+		addCommand<BlitImage>(srcImage, dstImage, pRegions[i], filter);
 	}
 }
 
@@ -568,7 +610,7 @@ void CommandBuffer::copyBufferToImage(VkBuffer srcBuffer, VkImage dstImage, VkIm
 
 	for(uint32_t i = 0; i < regionCount; i++)
 	{
-		commands->push_back(std::make_unique<BufferToImageCopy>(srcBuffer, dstImage, pRegions[i]));
+		addCommand<BufferToImageCopy>(srcBuffer, dstImage, pRegions[i]);
 	}
 }
 
@@ -580,7 +622,7 @@ void CommandBuffer::copyImageToBuffer(VkImage srcImage, VkImageLayout srcImageLa
 
 	for(uint32_t i = 0; i < regionCount; i++)
 	{
-		commands->push_back(std::make_unique<ImageToBufferCopy>(srcImage, dstBuffer, pRegions[i]));
+		addCommand<ImageToBufferCopy>(srcImage, dstBuffer, pRegions[i]);
 	}
 }
 
@@ -597,13 +639,23 @@ void CommandBuffer::fillBuffer(VkBuffer dstBuffer, VkDeviceSize dstOffset, VkDev
 void CommandBuffer::clearColorImage(VkImage image, VkImageLayout imageLayout, const VkClearColorValue* pColor,
 	uint32_t rangeCount, const VkImageSubresourceRange* pRanges)
 {
-	UNIMPLEMENTED();
+	ASSERT(state == RECORDING);
+
+	for(uint32_t i = 0; i < rangeCount; i++)
+	{
+		addCommand<ClearColorImage>(image, pColor[i], pRanges[i]);
+	}
 }
 
 void CommandBuffer::clearDepthStencilImage(VkImage image, VkImageLayout imageLayout, const VkClearDepthStencilValue* pDepthStencil,
 	uint32_t rangeCount, const VkImageSubresourceRange* pRanges)
 {
-	UNIMPLEMENTED();
+	ASSERT(state == RECORDING);
+
+	for(uint32_t i = 0; i < rangeCount; i++)
+	{
+		addCommand<ClearDepthStencilImage>(image, pDepthStencil[i], pRanges[i]);
+	}
 }
 
 void CommandBuffer::clearAttachments(uint32_t attachmentCount, const VkClearAttachment* pAttachments,
@@ -643,7 +695,7 @@ void CommandBuffer::draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t 
 		UNIMPLEMENTED();
 	}
 
-	commands->push_back(std::make_unique<Draw>(vertexCount));
+	addCommand<Draw>(vertexCount);
 }
 
 void CommandBuffer::drawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance)
