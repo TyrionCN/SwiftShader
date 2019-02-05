@@ -19,7 +19,7 @@
 #include "Pipeline/PixelProgram.hpp"
 #include "Pipeline/PixelShader.hpp"
 #include "Pipeline/Constants.hpp"
-#include "System/Debug.hpp"
+#include "Vulkan/VkDebug.hpp"
 
 #include <string.h>
 
@@ -774,7 +774,7 @@ namespace sw
 			const bool integerPipeline = (context->pixelShaderModel() <= 0x0104);
 			QuadRasterizer *generator = new PixelProgram(state, context->pixelShader);
 			generator->generate();
-			routine = (*generator)(L"PixelRoutine_%0.8X", state.shaderID);
+			routine = (*generator)("PixelRoutine_%0.8X", state.shaderID);
 			delete generator;
 
 			routineCache->add(state, routine);

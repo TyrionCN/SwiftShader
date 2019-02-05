@@ -32,6 +32,7 @@
 #include "VkPipeline.hpp"
 #include "VkPipelineCache.hpp"
 #include "VkPipelineLayout.hpp"
+#include "VkQueryPool.hpp"
 #include "VkQueue.hpp"
 #include "VkSampler.hpp"
 #include "VkSemaphore.hpp"
@@ -287,6 +288,17 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, c
 				}
 			}
 			break;
+		case VK_STRUCTURE_TYPE_DEVICE_GROUP_DEVICE_CREATE_INFO:
+			{
+				const VkDeviceGroupDeviceCreateInfo* groupDeviceCreateInfo = reinterpret_cast<const VkDeviceGroupDeviceCreateInfo*>(extensionCreateInfo);
+
+				if((groupDeviceCreateInfo->physicalDeviceCount != 1) ||
+				   (groupDeviceCreateInfo->pPhysicalDevices[0] != physicalDevice))
+				{
+					return VK_ERROR_FEATURE_NOT_PRESENT;
+				}
+			}
+			break;
 		default:
 			// "the [driver] must skip over, without processing (other than reading the sType and pNext members) any structures in the chain with sType values not defined by [supported extenions]"
 			UNIMPLEMENTED();   // TODO(b/119321052): UNIMPLEMENTED() should be used only for features that must still be implemented. Use a more informational macro here.
@@ -455,15 +467,19 @@ VKAPI_ATTR VkResult VKAPI_CALL vkQueueSubmit(VkQueue queue, uint32_t submitCount
 
 VKAPI_ATTR VkResult VKAPI_CALL vkQueueWaitIdle(VkQueue queue)
 {
-	TRACE("()");
-	UNIMPLEMENTED();
+	TRACE("(VkQueue queue = 0x%X)", queue);
+
+	vk::Cast(queue)->waitIdle();
+
 	return VK_SUCCESS;
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL vkDeviceWaitIdle(VkDevice device)
 {
-	TRACE("()");
-	UNIMPLEMENTED();
+	TRACE("(VkDevice device = 0x%X)", device);
+
+	vk::Cast(device)->waitIdle();
+
 	return VK_SUCCESS;
 }
 
@@ -747,21 +763,32 @@ VKAPI_ATTR VkResult VKAPI_CALL vkResetEvent(VkDevice device, VkEvent event)
 
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateQueryPool(VkDevice device, const VkQueryPoolCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkQueryPool* pQueryPool)
 {
-	TRACE("()");
-	UNIMPLEMENTED();
-	return VK_SUCCESS;
+	TRACE("(VkDevice device = 0x%X, const VkQueryPoolCreateInfo* pCreateInfo = 0x%X, const VkAllocationCallbacks* pAllocator = 0x%X, VkQueryPool* pQueryPool = 0x%X)",
+	      device, pCreateInfo, pAllocator, pQueryPool);
+
+	if(pCreateInfo->pNext || pCreateInfo->flags)
+	{
+		UNIMPLEMENTED();
+	}
+
+	return vk::QueryPool::Create(pAllocator, pCreateInfo, pQueryPool);
 }
 
 VKAPI_ATTR void VKAPI_CALL vkDestroyQueryPool(VkDevice device, VkQueryPool queryPool, const VkAllocationCallbacks* pAllocator)
 {
-	TRACE("()");
-	UNIMPLEMENTED();
+	TRACE("(VkDevice device = 0x%X, VkQueryPool queryPool = 0x%X, const VkAllocationCallbacks* pAllocator = 0x%X)",
+	      device, queryPool, pAllocator);
+
+	vk::destroy(queryPool, pAllocator);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL vkGetQueryPoolResults(VkDevice device, VkQueryPool queryPool, uint32_t firstQuery, uint32_t queryCount, size_t dataSize, void* pData, VkDeviceSize stride, VkQueryResultFlags flags)
 {
-	TRACE("()");
-	UNIMPLEMENTED();
+	TRACE("(VkDevice device = 0x%X, VkQueryPool queryPool = 0x%X, uint32_t firstQuery = %d, uint32_t queryCount = %d, size_t dataSize = %d, void* pData = 0x%X, VkDeviceSize stride = 0x%X, VkQueryResultFlags flags = %d)",
+	      device, queryPool, firstQuery, queryCount, dataSize, pData, stride, flags);
+
+	vk::Cast(queryPool)->getResults(firstQuery, queryCount, dataSize, pData, stride, flags);
+
 	return VK_SUCCESS;
 }
 
@@ -830,8 +857,10 @@ VKAPI_ATTR void VKAPI_CALL vkDestroyImage(VkDevice device, VkImage image, const 
 
 VKAPI_ATTR void VKAPI_CALL vkGetImageSubresourceLayout(VkDevice device, VkImage image, const VkImageSubresource* pSubresource, VkSubresourceLayout* pLayout)
 {
-	TRACE("()");
-	UNIMPLEMENTED();
+	TRACE("(VkDevice device, VkImage image, const VkImageSubresource* pSubresource, VkSubresourceLayout* pLayout)",
+		device, image, pSubresource, pLayout);
+
+	vk::Cast(image)->getSubresourceLayout(pSubresource, pLayout);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateImageView(VkDevice device, const VkImageViewCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkImageView* pView)
@@ -916,10 +945,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateGraphicsPipelines(VkDevice device, VkPipe
 	TRACE("(VkDevice device = 0x%X, VkPipelineCache pipelineCache = 0x%X, uint32_t createInfoCount = %d, const VkGraphicsPipelineCreateInfo* pCreateInfos, const VkAllocationCallbacks* pAllocator = 0x%X, VkPipeline* pPipelines = 0x%X)",
 		    device, pipelineCache, createInfoCount, pCreateInfos, pAllocator, pPipelines);
 
-	if(pipelineCache != VK_NULL_HANDLE)
-	{
-		UNIMPLEMENTED();
-	}
+	// TODO (b/123588002): Optimize based on pipelineCache.
 
 	VkResult errorResult = VK_SUCCESS;
 	for(uint32_t i = 0; i < createInfoCount; i++)
@@ -952,10 +978,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateComputePipelines(VkDevice device, VkPipel
 	TRACE("(VkDevice device = 0x%X, VkPipelineCache pipelineCache = 0x%X, uint32_t createInfoCount = %d, const VkComputePipelineCreateInfo* pCreateInfos, const VkAllocationCallbacks* pAllocator = 0x%X, VkPipeline* pPipelines = 0x%X)",
 		device, pipelineCache, createInfoCount, pCreateInfos, pAllocator, pPipelines);
 
-	if(pipelineCache != VK_NULL_HANDLE)
-	{
-		UNIMPLEMENTED();
-	}
+	// TODO (b/123588002): Optimize based on pipelineCache.
 
 	VkResult errorResult = VK_SUCCESS;
 	for(uint32_t i = 0; i < createInfoCount; i++)
@@ -1152,9 +1175,10 @@ VKAPI_ATTR void VKAPI_CALL vkDestroyCommandPool(VkDevice device, VkCommandPool c
 
 VKAPI_ATTR VkResult VKAPI_CALL vkResetCommandPool(VkDevice device, VkCommandPool commandPool, VkCommandPoolResetFlags flags)
 {
-	TRACE("()");
-	UNIMPLEMENTED();
-	return VK_SUCCESS;
+	TRACE("(VkDevice device = 0x%X, VkCommandPool commandPool = 0x%X, VkCommandPoolResetFlags flags = %d )",
+		device, commandPool, flags);
+
+	return vk::Cast(commandPool)->reset(flags);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL vkAllocateCommandBuffers(VkDevice device, const VkCommandBufferAllocateInfo* pAllocateInfo, VkCommandBuffer* pCommandBuffers)
@@ -1865,8 +1889,10 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceSparseImageFormatProperties2(VkPhy
 
 VKAPI_ATTR void VKAPI_CALL vkTrimCommandPool(VkDevice device, VkCommandPool commandPool, VkCommandPoolTrimFlags flags)
 {
-	TRACE("()");
-	UNIMPLEMENTED();
+	TRACE("(VkDevice device = 0x%X, VkCommandPool commandPool = 0x%X, VkCommandPoolTrimFlags flags = %d)",
+	      device, commandPool, flags);
+
+	vk::Cast(commandPool)->trim(flags);
 }
 
 VKAPI_ATTR void VKAPI_CALL vkGetDeviceQueue2(VkDevice device, const VkDeviceQueueInfo2* pQueueInfo, VkQueue* pQueue)

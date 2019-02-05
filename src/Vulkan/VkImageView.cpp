@@ -72,7 +72,7 @@ bool ImageView::imageTypesMatch(VkImageType imageType) const
 	return false;
 }
 
-void ImageView::clear(const VkClearValue& clearValue, const VkRect2D& renderArea)
+void ImageView::clear(const VkClearValue& clearValue, const VkImageAspectFlags aspectMask, const VkRect2D& renderArea)
 {
 	// Note: clearing ignores swizzling, so components is ignored.
 
@@ -86,7 +86,33 @@ void ImageView::clear(const VkClearValue& clearValue, const VkRect2D& renderArea
 		UNIMPLEMENTED();
 	}
 
+	VkImageSubresourceRange sr = subresourceRange;
+	sr.aspectMask = aspectMask;
 	image->clear(clearValue, renderArea, subresourceRange);
+}
+
+void ImageView::clear(const VkClearValue& clearValue, const VkImageAspectFlags aspectMask, const VkClearRect& renderArea)
+{
+	// Note: clearing ignores swizzling, so components is ignored.
+
+	if(!imageTypesMatch(image->getImageType()))
+	{
+		UNIMPLEMENTED();
+	}
+
+	if(image->getFormat() != format)
+	{
+		UNIMPLEMENTED();
+	}
+
+	VkImageSubresourceRange sr;
+	sr.aspectMask = aspectMask;
+	sr.baseMipLevel = subresourceRange.baseMipLevel;
+	sr.levelCount = subresourceRange.levelCount;
+	sr.baseArrayLayer = renderArea.baseArrayLayer + subresourceRange.baseArrayLayer;
+	sr.layerCount = renderArea.layerCount;
+
+	image->clear(clearValue, renderArea.rect, sr);
 }
 
 }

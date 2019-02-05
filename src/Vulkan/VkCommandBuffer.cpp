@@ -14,6 +14,7 @@
 
 #include "VkCommandBuffer.hpp"
 #include "VkBuffer.hpp"
+#include "VkEvent.hpp"
 #include "VkFramebuffer.hpp"
 #include "VkImage.hpp"
 #include "VkPipeline.hpp"
@@ -36,10 +37,10 @@ public:
 class BeginRenderPass : public CommandBuffer::Command
 {
 public:
-	BeginRenderPass(VkRenderPass pRenderPass, VkFramebuffer pFramebuffer, VkRect2D pRenderArea,
-	                uint32_t pClearValueCount, const VkClearValue* pClearValues) :
-		renderPass(pRenderPass), framebuffer(pFramebuffer), renderArea(pRenderArea),
-		clearValueCount(pClearValueCount)
+	BeginRenderPass(VkRenderPass renderPass, VkFramebuffer framebuffer, VkRect2D renderArea,
+	                uint32_t clearValueCount, const VkClearValue* pClearValues) :
+		renderPass(Cast(renderPass)), framebuffer(Cast(framebuffer)), renderArea(renderArea),
+		clearValueCount(clearValueCount)
 	{
 		// FIXME (b/119409619): use an allocator here so we can control all memory allocations
 		clearValues = new VkClearValue[clearValueCount];
@@ -54,16 +55,34 @@ public:
 protected:
 	void play(CommandBuffer::ExecutionState& executionState)
 	{
-		Cast(renderPass)->begin();
-		Cast(framebuffer)->clear(clearValueCount, clearValues, renderArea);
+		executionState.renderPass = renderPass;
+		executionState.renderPassFramebuffer = framebuffer;
+		renderPass->begin();
+		framebuffer->clear(clearValueCount, clearValues, renderArea);
 	}
 
 private:
-	VkRenderPass renderPass;
-	VkFramebuffer framebuffer;
+	RenderPass* renderPass;
+	Framebuffer* framebuffer;
 	VkRect2D renderArea;
 	uint32_t clearValueCount;
 	VkClearValue* clearValues;
+};
+
+class NextSubpass : public CommandBuffer::Command
+{
+public:
+	NextSubpass()
+	{
+	}
+
+protected:
+	void play(CommandBuffer::ExecutionState& executionState)
+	{
+		executionState.renderPass->nextSubpass();
+	}
+
+private:
 };
 
 class EndRenderPass : public CommandBuffer::Command
@@ -76,7 +95,9 @@ public:
 protected:
 	void play(CommandBuffer::ExecutionState& executionState)
 	{
-		Cast(executionState.renderpass)->end();
+		executionState.renderPass->end();
+		executionState.renderPass = nullptr;
+		executionState.renderPassFramebuffer = nullptr;
 	}
 
 private:
@@ -93,7 +114,7 @@ public:
 protected:
 	void play(CommandBuffer::ExecutionState& executionState)
 	{
-		executionState.pipelines[pipelineBindPoint] = pipeline;
+		executionState.pipelines[pipelineBindPoint] = Cast(pipeline);
 	}
 
 private:
@@ -120,21 +141,22 @@ struct VertexBufferBind : public CommandBuffer::Command
 
 struct Draw : public CommandBuffer::Command
 {
-	Draw(uint32_t pVertexCount) : vertexCount(pVertexCount)
+	Draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance)
+		: vertexCount(vertexCount), instanceCount(instanceCount), firstVertex(firstVertex), firstInstance(firstInstance)
 	{
 	}
 
 	void play(CommandBuffer::ExecutionState& executionState)
 	{
 		GraphicsPipeline* pipeline = static_cast<GraphicsPipeline*>(
-			Cast(executionState.pipelines[VK_PIPELINE_BIND_POINT_GRAPHICS]));
+			executionState.pipelines[VK_PIPELINE_BIND_POINT_GRAPHICS]);
 
 		sw::Context context = pipeline->getContext();
 		for(uint32_t i = 0; i < MAX_VERTEX_INPUT_BINDINGS; i++)
 		{
 			const auto& vertexInput = executionState.vertexInputBindings[i];
 			Buffer* buffer = Cast(vertexInput.buffer);
-			context.input[i].buffer = buffer ? buffer->getOffsetPointer(vertexInput.offset) : nullptr;
+			context.input[i].buffer = buffer ? buffer->getOffsetPointer(vertexInput.offset + context.input[i].stride * firstVertex) : nullptr;
 		}
 
 		executionState.renderer->setContext(context);
@@ -142,10 +164,19 @@ struct Draw : public CommandBuffer::Command
 		executionState.renderer->setViewport(pipeline->getViewport());
 		executionState.renderer->setBlendConstant(pipeline->getBlendConstants());
 
-		executionState.renderer->draw(context.drawType, 0, pipeline->computePrimitiveCount(vertexCount));
+		const uint32_t primitiveCount = pipeline->computePrimitiveCount(vertexCount);
+		const uint32_t lastInstance = firstInstance + instanceCount - 1;
+		for(uint32_t instance = firstInstance; instance <= lastInstance; instance++)
+		{
+			executionState.renderer->setInstanceID(instance);
+			executionState.renderer->draw(context.drawType, 0, primitiveCount);
+		}
 	}
 
 	uint32_t vertexCount;
+	uint32_t instanceCount;
+	uint32_t firstVertex;
+	uint32_t firstInstance;
 };
 
 struct ImageToImageCopy : public CommandBuffer::Command
@@ -256,6 +287,23 @@ private:
 	const VkImageSubresourceRange range;
 };
 
+struct ClearAttachment : public CommandBuffer::Command
+{
+	ClearAttachment(const VkClearAttachment& attachment, const VkClearRect& rect) :
+		attachment(attachment), rect(rect)
+	{
+	}
+
+	void play(CommandBuffer::ExecutionState& executionState)
+	{
+		executionState.renderPassFramebuffer->clear(attachment, rect);
+	}
+
+private:
+	const VkClearAttachment attachment;
+	const VkClearRect rect;
+};
+
 struct BlitImage : public CommandBuffer::Command
 {
 	BlitImage(VkImage srcImage, VkImage dstImage, const VkImageBlit& region, VkFilter filter) :
@@ -294,6 +342,38 @@ struct PipelineBarrier : public CommandBuffer::Command
 	}
 
 private:
+};
+
+struct SignalEvent : public CommandBuffer::Command
+{
+	SignalEvent(VkEvent ev, VkPipelineStageFlags stageMask) : ev(ev), stageMask(stageMask)
+	{
+	}
+
+	void play(CommandBuffer::ExecutionState& executionState)
+	{
+		Cast(ev)->signal();
+	}
+
+private:
+	VkEvent ev;
+	VkPipelineStageFlags stageMask; // FIXME(b/117835459) : We currently ignore the flags and signal the event at the last stage
+};
+
+struct ResetEvent : public CommandBuffer::Command
+{
+	ResetEvent(VkEvent ev, VkPipelineStageFlags stageMask) : ev(ev), stageMask(stageMask)
+	{
+	}
+
+	void play(CommandBuffer::ExecutionState& executionState)
+	{
+		Cast(ev)->reset();
+	}
+
+private:
+	VkEvent ev;
+	VkPipelineStageFlags stageMask; // FIXME(b/117835459) : We currently ignore the flags and reset the event at the last stage
 };
 
 CommandBuffer::CommandBuffer(VkCommandBufferLevel pLevel) : level(pLevel)
@@ -374,7 +454,9 @@ void CommandBuffer::beginRenderPass(VkRenderPass renderPass, VkFramebuffer frame
 
 void CommandBuffer::nextSubpass(VkSubpassContents contents)
 {
-	UNIMPLEMENTED();
+	ASSERT(state == RECORDING);
+
+	addCommand<NextSubpass>();
 }
 
 void CommandBuffer::endRenderPass()
@@ -661,7 +743,15 @@ void CommandBuffer::clearDepthStencilImage(VkImage image, VkImageLayout imageLay
 void CommandBuffer::clearAttachments(uint32_t attachmentCount, const VkClearAttachment* pAttachments,
 	uint32_t rectCount, const VkClearRect* pRects)
 {
-	UNIMPLEMENTED();
+	ASSERT(state == RECORDING);
+
+	for(uint32_t i = 0; i < attachmentCount; i++)
+	{
+		for(uint32_t j = 0; j < rectCount; j++)
+		{
+			addCommand<ClearAttachment>(pAttachments[i], pRects[j]);
+		}
+	}
 }
 
 void CommandBuffer::resolveImage(VkImage srcImage, VkImageLayout srcImageLayout, VkImage dstImage, VkImageLayout dstImageLayout,
@@ -672,12 +762,16 @@ void CommandBuffer::resolveImage(VkImage srcImage, VkImageLayout srcImageLayout,
 
 void CommandBuffer::setEvent(VkEvent event, VkPipelineStageFlags stageMask)
 {
-	UNIMPLEMENTED();
+	ASSERT(state == RECORDING);
+
+	addCommand<SignalEvent>(event, stageMask);
 }
 
 void CommandBuffer::resetEvent(VkEvent event, VkPipelineStageFlags stageMask)
 {
-	UNIMPLEMENTED();
+	ASSERT(state == RECORDING);
+
+	addCommand<ResetEvent>(event, stageMask);
 }
 
 void CommandBuffer::waitEvents(uint32_t eventCount, const VkEvent* pEvents, VkPipelineStageFlags srcStageMask,
@@ -690,12 +784,7 @@ void CommandBuffer::waitEvents(uint32_t eventCount, const VkEvent* pEvents, VkPi
 
 void CommandBuffer::draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance)
 {
-	if(instanceCount > 1 || firstVertex != 0 || firstInstance != 0)
-	{
-		UNIMPLEMENTED();
-	}
-
-	addCommand<Draw>(vertexCount);
+	addCommand<Draw>(vertexCount, instanceCount, firstVertex, firstInstance);
 }
 
 void CommandBuffer::drawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance)
