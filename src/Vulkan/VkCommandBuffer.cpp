@@ -17,6 +17,7 @@
 #include "VkEvent.hpp"
 #include "VkFramebuffer.hpp"
 #include "VkImage.hpp"
+#include "VkImageView.hpp"
 #include "VkPipeline.hpp"
 #include "VkRenderPass.hpp"
 #include "Device/Renderer.hpp"
@@ -53,7 +54,7 @@ public:
 	}
 
 protected:
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		executionState.renderPass = renderPass;
 		executionState.renderPassFramebuffer = framebuffer;
@@ -77,7 +78,7 @@ public:
 	}
 
 protected:
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		executionState.renderPass->nextSubpass();
 	}
@@ -93,7 +94,7 @@ public:
 	}
 
 protected:
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		executionState.renderPass->end();
 		executionState.renderPass = nullptr;
@@ -112,7 +113,7 @@ public:
 	}
 
 protected:
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		executionState.pipelines[pipelineBindPoint] = Cast(pipeline);
 	}
@@ -129,7 +130,7 @@ struct VertexBufferBind : public CommandBuffer::Command
 	{
 	}
 
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		executionState.vertexInputBindings[binding] = { buffer, offset };
 	}
@@ -146,7 +147,7 @@ struct Draw : public CommandBuffer::Command
 	{
 	}
 
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		GraphicsPipeline* pipeline = static_cast<GraphicsPipeline*>(
 			executionState.pipelines[VK_PIPELINE_BIND_POINT_GRAPHICS]);
@@ -164,12 +165,38 @@ struct Draw : public CommandBuffer::Command
 		executionState.renderer->setViewport(pipeline->getViewport());
 		executionState.renderer->setBlendConstant(pipeline->getBlendConstants());
 
+		for (auto i = 0u; i < executionState.renderPass->getCurrentSubpass().colorAttachmentCount; i++)
+		{
+			auto attachmentReference = executionState.renderPass->getCurrentSubpass().pColorAttachments[i];
+			if (attachmentReference.attachment != VK_ATTACHMENT_UNUSED)
+			{
+				auto attachment = executionState.renderPassFramebuffer->getAttachment(attachmentReference.attachment);
+				executionState.renderer->setRenderTarget(i, attachment->asSurface(), 0);
+			}
+		}
+
 		const uint32_t primitiveCount = pipeline->computePrimitiveCount(vertexCount);
 		const uint32_t lastInstance = firstInstance + instanceCount - 1;
 		for(uint32_t instance = firstInstance; instance <= lastInstance; instance++)
 		{
 			executionState.renderer->setInstanceID(instance);
 			executionState.renderer->draw(context.drawType, 0, primitiveCount);
+		}
+
+		// Wait for completion. We should be able to get rid of this eventually.
+		executionState.renderer->synchronize();
+
+		// Renderer has finished touching the color attachments; destroy the temporary Surface objects.
+		// We shouldn't need to do any of this at draw time.
+		for (auto i = 0u; i < executionState.renderPass->getCurrentSubpass().colorAttachmentCount; i++)
+		{
+			auto attachmentReference = executionState.renderPass->getCurrentSubpass().pColorAttachments[i];
+			if (attachmentReference.attachment != VK_ATTACHMENT_UNUSED)
+			{
+				auto surface = executionState.renderer->getRenderTarget(i);
+				executionState.renderer->setRenderTarget(i, nullptr, 0);
+				delete surface;
+			}
 		}
 	}
 
@@ -186,7 +213,7 @@ struct ImageToImageCopy : public CommandBuffer::Command
 	{
 	}
 
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		Cast(srcImage)->copyTo(dstImage, region);
 	}
@@ -204,7 +231,7 @@ struct BufferToBufferCopy : public CommandBuffer::Command
 	{
 	}
 
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		Cast(srcBuffer)->copyTo(Cast(dstBuffer), region);
 	}
@@ -222,7 +249,7 @@ struct ImageToBufferCopy : public CommandBuffer::Command
 	{
 	}
 
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		Cast(srcImage)->copyTo(dstBuffer, region);
 	}
@@ -240,7 +267,7 @@ struct BufferToImageCopy : public CommandBuffer::Command
 	{
 	}
 
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		Cast(dstImage)->copyFrom(srcBuffer, region);
 	}
@@ -251,6 +278,44 @@ private:
 	const VkBufferImageCopy region;
 };
 
+struct FillBuffer : public CommandBuffer::Command
+{
+	FillBuffer(VkBuffer dstBuffer, VkDeviceSize dstOffset, VkDeviceSize size, uint32_t data) :
+		dstBuffer(dstBuffer), dstOffset(dstOffset), size(size), data(data)
+	{
+	}
+
+	void play(CommandBuffer::ExecutionState& executionState) override
+	{
+		Cast(dstBuffer)->fill(dstOffset, size, data);
+	}
+
+private:
+	VkBuffer dstBuffer;
+	VkDeviceSize dstOffset;
+	VkDeviceSize size;
+	uint32_t data;
+};
+
+struct UpdateBuffer : public CommandBuffer::Command
+{
+	UpdateBuffer(VkBuffer dstBuffer, VkDeviceSize dstOffset, VkDeviceSize dataSize, const void* pData) :
+		dstBuffer(dstBuffer), dstOffset(dstOffset), dataSize(dataSize), pData(pData)
+	{
+	}
+
+	void play(CommandBuffer::ExecutionState& executionState) override
+	{
+		Cast(dstBuffer)->update(dstOffset, dataSize, pData);
+	}
+
+private:
+	VkBuffer dstBuffer;
+	VkDeviceSize dstOffset;
+	VkDeviceSize dataSize;
+	const void* pData;
+};
+
 struct ClearColorImage : public CommandBuffer::Command
 {
 	ClearColorImage(VkImage image, const VkClearColorValue& color, const VkImageSubresourceRange& range) :
@@ -258,7 +323,7 @@ struct ClearColorImage : public CommandBuffer::Command
 	{
 	}
 
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		Cast(image)->clear(color, range);
 	}
@@ -276,7 +341,7 @@ struct ClearDepthStencilImage : public CommandBuffer::Command
 	{
 	}
 
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		Cast(image)->clear(depthStencil, range);
 	}
@@ -294,7 +359,7 @@ struct ClearAttachment : public CommandBuffer::Command
 	{
 	}
 
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		executionState.renderPassFramebuffer->clear(attachment, rect);
 	}
@@ -311,7 +376,7 @@ struct BlitImage : public CommandBuffer::Command
 	{
 	}
 
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		Cast(srcImage)->blit(dstImage, region, filter);
 	}
@@ -319,7 +384,7 @@ struct BlitImage : public CommandBuffer::Command
 private:
 	VkImage srcImage;
 	VkImage dstImage;
-	const VkImageBlit& region;
+	VkImageBlit region;
 	VkFilter filter;
 };
 
@@ -329,7 +394,7 @@ struct PipelineBarrier : public CommandBuffer::Command
 	{
 	}
 
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		// This can currently be a noop. The sw::Surface locking/unlocking mechanism used by the renderer already takes care of
 		// making sure the read/writes always happen in order. Eventually, if we remove this synchronization mechanism, we can
@@ -350,7 +415,7 @@ struct SignalEvent : public CommandBuffer::Command
 	{
 	}
 
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		Cast(ev)->signal();
 	}
@@ -366,7 +431,7 @@ struct ResetEvent : public CommandBuffer::Command
 	{
 	}
 
-	void play(CommandBuffer::ExecutionState& executionState)
+	void play(CommandBuffer::ExecutionState& executionState) override
 	{
 		Cast(ev)->reset();
 	}
@@ -710,12 +775,16 @@ void CommandBuffer::copyImageToBuffer(VkImage srcImage, VkImageLayout srcImageLa
 
 void CommandBuffer::updateBuffer(VkBuffer dstBuffer, VkDeviceSize dstOffset, VkDeviceSize dataSize, const void* pData)
 {
-	UNIMPLEMENTED();
+	ASSERT(state == RECORDING);
+
+	addCommand<UpdateBuffer>(dstBuffer, dstOffset, dataSize, pData);
 }
 
 void CommandBuffer::fillBuffer(VkBuffer dstBuffer, VkDeviceSize dstOffset, VkDeviceSize size, uint32_t data)
 {
-	UNIMPLEMENTED();
+	ASSERT(state == RECORDING);
+
+	addCommand<FillBuffer>(dstBuffer, dstOffset, size, data);
 }
 
 void CommandBuffer::clearColorImage(VkImage image, VkImageLayout imageLayout, const VkClearColorValue* pColor,

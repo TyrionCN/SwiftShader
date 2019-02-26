@@ -18,7 +18,6 @@
 #include "Matrix.hpp"
 #include "Context.hpp"
 #include "RoutineCache.hpp"
-#include "Pipeline/VertexShader.hpp"
 #include "Pipeline/SpirvShader.hpp"
 
 namespace sw
@@ -51,16 +50,8 @@ namespace sw
 
 			uint64_t shaderID;
 
-			bool fixedFunction             : 1;   // TODO: Eliminate by querying shader.
 			bool textureSampling           : 1;   // TODO: Eliminate by querying shader.
-			unsigned int positionRegister  : BITS(MAX_VERTEX_OUTPUTS);   // TODO: Eliminate by querying shader.
-			unsigned int pointSizeRegister : BITS(MAX_VERTEX_OUTPUTS);   // TODO: Eliminate by querying shader.
-
-			bool transformFeedbackQueryEnabled                : 1;
-			uint64_t transformFeedbackEnabled                 : 64;
 			unsigned char verticesPerPrimitive                : 2; // 1 (points), 2 (lines) or 3 (triangles)
-
-			bool multiSampling  : 1;
 
 			Sampler::State sampler[VERTEX_TEXTURE_IMAGE_UNITS];
 
@@ -77,37 +68,7 @@ namespace sw
 				unsigned int attribType : BITS(SpirvShader::ATTRIBTYPE_LAST);
 			};
 
-			struct Output
-			{
-				union
-				{
-					unsigned char write : 4;
-
-					struct
-					{
-						unsigned char xWrite : 1;
-						unsigned char yWrite : 1;
-						unsigned char zWrite : 1;
-						unsigned char wWrite : 1;
-					};
-				};
-
-				union
-				{
-					unsigned char clamp : 4;
-
-					struct
-					{
-						unsigned char xClamp : 1;
-						unsigned char yClamp : 1;
-						unsigned char zClamp : 1;
-						unsigned char wClamp : 1;
-					};
-				};
-			};
-
 			Input input[MAX_VERTEX_INPUTS];
-			Output output[MAX_VERTEX_OUTPUTS];
 		};
 
 		struct State : States
@@ -127,16 +88,6 @@ namespace sw
 
 		void setInputStream(int index, const Stream &stream);
 		void resetInputStreams();
-
-		void setFloatConstant(unsigned int index, const float value[4]);
-		void setIntegerConstant(unsigned int index, const int integer[4]);
-		void setBooleanConstant(unsigned int index, int boolean);
-
-		void setUniformBuffer(int index, sw::Resource* uniformBuffer, int offset);
-		void lockUniformBuffers(byte** u, sw::Resource* uniformBuffers[]);
-
-		void setTransformFeedbackBuffer(int index, sw::Resource* transformFeedbackBuffer, int offset, unsigned int reg, unsigned int row, unsigned int col, unsigned int stride);
-		void lockTransformFeedbackBuffers(byte** t, unsigned int* v, unsigned int* r, unsigned int* c, unsigned int* s, sw::Resource* transformFeedbackBuffers[]);
 
 		void setInstanceID(int instanceID);
 
@@ -164,46 +115,16 @@ namespace sw
 		void setPointSizeMin(float pointSizeMin);
 		void setPointSizeMax(float pointSizeMax);
 
-		void setTransformFeedbackQueryEnabled(bool enable);
-		void enableTransformFeedback(uint64_t enable);
-
 	protected:
 		const State update(DrawType drawType);
 		Routine *routine(const State &state);
 
 		void setRoutineCacheSize(int cacheSize);
 
-		// Shader constants
-		float4 c[VERTEX_UNIFORM_VECTORS + 1];   // One extra for indices out of range, c[VERTEX_UNIFORM_VECTORS] = {0, 0, 0, 0}
-		int4 i[16];
-		bool b[16];
-
 		float pointSizeMin;
 		float pointSizeMax;
 
 	private:
-		struct UniformBufferInfo
-		{
-			UniformBufferInfo();
-
-			Resource* buffer;
-			int offset;
-		};
-		UniformBufferInfo uniformBufferInfo[MAX_UNIFORM_BUFFER_BINDINGS];
-
-		struct TransformFeedbackInfo
-		{
-			TransformFeedbackInfo();
-
-			Resource* buffer;
-			unsigned int offset;
-			unsigned int reg;
-			unsigned int row;
-			unsigned int col;
-			unsigned int stride;
-		};
-		TransformFeedbackInfo transformFeedbackInfo[MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS];
-
 		Context *const context;
 
 		RoutineCache<State> *routineCache;

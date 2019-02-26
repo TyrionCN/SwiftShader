@@ -17,16 +17,66 @@
 
 #include "System/Types.hpp"
 #include "Vulkan/VkDebug.hpp"
+#include "ShaderCore.hpp"
+#include "SpirvID.hpp"
 
 #include <string>
 #include <vector>
 #include <unordered_map>
 #include <cstdint>
 #include <type_traits>
+#include <memory>
 #include <spirv/unified1/spirv.hpp>
+#include <Device/Config.hpp>
 
 namespace sw
 {
+	// Incrementally constructed complex bundle of rvalues
+	// Effectively a restricted vector, supporting only:
+	// - allocation to a (runtime-known) fixed size
+	// - in-place construction of elements
+	// - const operator[]
+	class Intermediate
+	{
+	public:
+		using Scalar = RValue<Float4>;
+
+		Intermediate(uint32_t size) : contents(new ContentsType[size]), size(size) {}
+
+		~Intermediate()
+		{
+			for (auto i = 0u; i < size; i++)
+				reinterpret_cast<Scalar *>(&contents[i])->~Scalar();
+			delete [] contents;
+		}
+
+		void emplace(uint32_t n, Scalar&& value)
+		{
+			assert(n < size);
+			new (&contents[n]) Scalar(value);
+		}
+
+		Scalar const & operator[](uint32_t n) const
+		{
+			assert(n < size);
+			return *reinterpret_cast<Scalar const *>(&contents[n]);
+		}
+
+		// No copy/move construction or assignment
+		Intermediate(Intermediate const &) = delete;
+		Intermediate(Intermediate &&) = delete;
+		Intermediate & operator=(Intermediate const &) = delete;
+		Intermediate & operator=(Intermediate &&) = delete;
+
+	private:
+		using ContentsType = std::aligned_storage<sizeof(Scalar), alignof(Scalar)>::type;
+
+		ContentsType *contents;
+		uint32_t size;
+	};
+
+	class SpirvRoutine;
+
 	class SpirvShader
 	{
 	public:
@@ -53,6 +103,12 @@ namespace sw
 			{
 				ASSERT(n < wordCount());
 				return iter[n];
+			}
+
+			uint32_t const * wordPointer(uint32_t n) const
+			{
+				ASSERT(n < wordCount());
+				return &iter[n];
 			}
 
 			bool operator!=(InsnIterator const &other) const
@@ -98,23 +154,56 @@ namespace sw
 			return InsnIterator{insns.cend()};
 		}
 
+		class Type;
+		using TypeID = SpirvID<Type>;
+
+		class Type
+		{
+		public:
+			InsnIterator definition;
+			spv::StorageClass storageClass = static_cast<spv::StorageClass>(-1);
+			uint32_t sizeInComponents = 0;
+			bool isBuiltInBlock = false;
+
+			// Inner element type for pointers, arrays, vectors and matrices.
+			TypeID element;
+		};
+
+		class Object;
+		using ObjectID = SpirvID<Object>;
+
 		class Object
 		{
 		public:
 			InsnIterator definition;
-			spv::StorageClass storageClass;
-			uint32_t sizeInComponents = 0;
-			bool isBuiltInBlock = false;
+			TypeID type;
+			ObjectID pointerBase;
+			std::unique_ptr<uint32_t[]> constantValue = nullptr;
 
 			enum class Kind
 			{
 				Unknown,        /* for paranoia -- if we get left with an object in this state, the module was broken */
-				Type,
 				Variable,
 				InterfaceVariable,
 				Constant,
 				Value,
 			} kind = Kind::Unknown;
+		};
+
+		struct TypeOrObject {}; // Dummy struct to represent a Type or Object.
+
+		// TypeOrObjectID is an identifier that represents a Type or an Object,
+		// and supports implicit casting to and from TypeID or ObjectID.
+		class TypeOrObjectID : public SpirvID<TypeOrObject>
+		{
+		public:
+			using Hash = std::hash<SpirvID<TypeOrObject>>;
+
+			inline TypeOrObjectID(uint32_t id) : SpirvID(id) {}
+			inline TypeOrObjectID(TypeID id) : SpirvID(id.value()) {}
+			inline TypeOrObjectID(ObjectID id) : SpirvID(id.value()) {}
+			inline operator TypeID() const { return TypeID(value()); }
+			inline operator ObjectID() const { return ObjectID(value()); }
 		};
 
 		int getSerialID() const
@@ -132,6 +221,7 @@ namespace sw
 			bool DepthLess : 1;
 			bool DepthUnchanged : 1;
 			bool ContainsKill : 1;
+			bool NeedsCentroid : 1;
 
 			// Compute workgroup dimensions
 			int LocalSizeX, LocalSizeY, LocalSizeZ;
@@ -186,8 +276,8 @@ namespace sw
 			void Apply(spv::Decoration decoration, uint32_t arg);
 		};
 
-		std::unordered_map<uint32_t, Decorations> decorations;
-		std::unordered_map<uint32_t, std::vector<Decorations>> memberDecorations;
+		std::unordered_map<TypeOrObjectID, Decorations, TypeOrObjectID::Hash> decorations;
+		std::unordered_map<TypeID, std::vector<Decorations>> memberDecorations;
 
 		struct InterfaceComponent
 		{
@@ -204,7 +294,7 @@ namespace sw
 
 		struct BuiltinMapping
 		{
-			uint32_t Id;
+			ObjectID Id;
 			uint32_t FirstComponent;
 			uint32_t SizeInComponents;
 		};
@@ -212,44 +302,93 @@ namespace sw
 		std::vector<InterfaceComponent> inputs;
 		std::vector<InterfaceComponent> outputs;
 
-	private:
-		const int serialID;
-		static volatile int serialCounter;
-		Modes modes;
-		std::unordered_map<uint32_t, Object> types;
-		std::unordered_map<uint32_t, Object> defs;
+		void emitProlog(SpirvRoutine *routine) const;
+		void emit(SpirvRoutine *routine) const;
+		void emitEpilog(SpirvRoutine *routine) const;
 
 		using BuiltInHash = std::hash<std::underlying_type<spv::BuiltIn>::type>;
 		std::unordered_map<spv::BuiltIn, BuiltinMapping, BuiltInHash> inputBuiltins;
 		std::unordered_map<spv::BuiltIn, BuiltinMapping, BuiltInHash> outputBuiltins;
 
-		Object const &getType(uint32_t id) const
+		Type const &getType(TypeID id) const
 		{
 			auto it = types.find(id);
 			assert(it != types.end());
 			return it->second;
 		}
 
-		Object const &getObject(uint32_t id) const {
+		Object const &getObject(ObjectID id) const
+		{
 			auto it = defs.find(id);
 			assert(it != defs.end());
 			return it->second;
 		}
 
+	private:
+		const int serialID;
+		static volatile int serialCounter;
+		Modes modes;
+		HandleMap<Type> types;
+		HandleMap<Object> defs;
+
 		void ProcessExecutionMode(InsnIterator it);
 
 		uint32_t ComputeTypeSize(InsnIterator insn);
+		void ApplyDecorationsForId(Decorations *d, TypeOrObjectID id) const;
+		void ApplyDecorationsForIdMember(Decorations *d, TypeID id, uint32_t member) const;
 
-		void PopulateInterfaceSlot(std::vector<InterfaceComponent> *iface, Decorations const &d, AttribType type);
+		template<typename F>
+		int VisitInterfaceInner(TypeID id, Decorations d, F f) const;
 
-		int PopulateInterfaceInner(std::vector<InterfaceComponent> *iface, uint32_t id, Decorations d);
+		template<typename F>
+		void VisitInterface(ObjectID id, F f) const;
 
-		void PopulateInterface(std::vector<InterfaceComponent> *iface, uint32_t id);
-
-		uint32_t GetConstantInt(uint32_t id);
+		uint32_t GetConstantInt(ObjectID id) const;
+		Object& CreateConstant(InsnIterator it);
 
 		void ProcessInterfaceVariable(Object &object);
+
+		Int4 WalkAccessChain(ObjectID id, uint32_t numIndexes, uint32_t const *indexIds, SpirvRoutine *routine) const;
 	};
+
+	class SpirvRoutine
+	{
+	public:
+		using Value = Array<Float4>;
+		std::unordered_map<SpirvShader::ObjectID, Value> lvalues;
+
+		std::unordered_map<SpirvShader::ObjectID, Intermediate> intermediates;
+
+		Value inputs = Value{MAX_INTERFACE_COMPONENTS};
+		Value outputs = Value{MAX_INTERFACE_COMPONENTS};
+
+		void createLvalue(SpirvShader::ObjectID id, uint32_t size)
+		{
+			lvalues.emplace(id, Value(size));
+		}
+
+		void createIntermediate(SpirvShader::ObjectID id, uint32_t size)
+		{
+			intermediates.emplace(std::piecewise_construct,
+					std::forward_as_tuple(id),
+					std::forward_as_tuple(size));
+		}
+
+		Value& getValue(SpirvShader::ObjectID id)
+		{
+			auto it = lvalues.find(id);
+			assert(it != lvalues.end());
+			return it->second;
+		}
+
+		Intermediate& getIntermediate(SpirvShader::ObjectID id)
+		{
+			auto it = intermediates.find(id);
+			assert(it != intermediates.end());
+			return it->second;
+		}
+	};
+
 }
 
 #endif  // sw_SpirvShader_hpp

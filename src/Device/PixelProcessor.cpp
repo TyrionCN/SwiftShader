@@ -17,7 +17,6 @@
 #include "Surface.hpp"
 #include "Primitive.hpp"
 #include "Pipeline/PixelProgram.hpp"
-#include "Pipeline/PixelShader.hpp"
 #include "Pipeline/Constants.hpp"
 #include "Vulkan/VkDebug.hpp"
 
@@ -59,12 +58,6 @@ namespace sw
 		return memcmp(static_cast<const States*>(this), static_cast<const States*>(&state), sizeof(States)) == 0;
 	}
 
-	PixelProcessor::UniformBufferInfo::UniformBufferInfo()
-	{
-		buffer = nullptr;
-		offset = 0;
-	}
-
 	PixelProcessor::PixelProcessor(Context *context) : context(context)
 	{
 		routineCache = nullptr;
@@ -77,58 +70,15 @@ namespace sw
 		routineCache = nullptr;
 	}
 
-	void PixelProcessor::setFloatConstant(unsigned int index, const float value[4])
-	{
-		if(index < FRAGMENT_UNIFORM_VECTORS)
-		{
-			c[index][0] = value[0];
-			c[index][1] = value[1];
-			c[index][2] = value[2];
-			c[index][3] = value[3];
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setIntegerConstant(unsigned int index, const int value[4])
-	{
-		if(index < 16)
-		{
-			i[index][0] = value[0];
-			i[index][1] = value[1];
-			i[index][2] = value[2];
-			i[index][3] = value[3];
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setBooleanConstant(unsigned int index, int boolean)
-	{
-		if(index < 16)
-		{
-			b[index] = boolean != 0;
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setUniformBuffer(int index, sw::Resource* buffer, int offset)
-	{
-		uniformBufferInfo[index].buffer = buffer;
-		uniformBufferInfo[index].offset = offset;
-	}
-
-	void PixelProcessor::lockUniformBuffers(byte** u, sw::Resource* uniformBuffers[])
-	{
-		for(int i = 0; i < MAX_UNIFORM_BUFFER_BINDINGS; ++i)
-		{
-			u[i] = uniformBufferInfo[i].buffer ? static_cast<byte*>(uniformBufferInfo[i].buffer->lock(PUBLIC, PRIVATE)) + uniformBufferInfo[i].offset : nullptr;
-			uniformBuffers[i] = uniformBufferInfo[i].buffer;
-		}
-	}
-
 	void PixelProcessor::setRenderTarget(int index, Surface *renderTarget, unsigned int layer)
 	{
 		context->renderTarget[index] = renderTarget;
 		context->renderTargetLayer[index] = layer;
+	}
+
+	Surface *PixelProcessor::getRenderTarget(int index)
+	{
+		return context->renderTarget[index];
 	}
 
 	void PixelProcessor::setDepthBuffer(Surface *depthBuffer, unsigned int layer)
@@ -348,19 +298,9 @@ namespace sw
 		context->depthCompareMode = depthCompareMode;
 	}
 
-	void PixelProcessor::setAlphaCompare(VkCompareOp alphaCompareMode)
-	{
-		context->alphaCompareMode = alphaCompareMode;
-	}
-
 	void PixelProcessor::setDepthWriteEnable(bool depthWriteEnable)
 	{
 		context->depthWriteEnable = depthWriteEnable;
-	}
-
-	void PixelProcessor::setAlphaTestEnable(bool alphaTestEnable)
-	{
-		context->alphaTestEnable = alphaTestEnable;
 	}
 
 	void PixelProcessor::setCullMode(CullMode cullMode, bool frontFacingCCW)
@@ -595,16 +535,6 @@ namespace sw
 		context->setBlendOperationAlpha(blendOperationAlpha);
 	}
 
-	void PixelProcessor::setAlphaReference(float alphaReference)
-	{
-		context->alphaReference = alphaReference;
-
-		factor.alphaReference4[0] = (word)iround(alphaReference * 0x1000 / 0xFF);
-		factor.alphaReference4[1] = (word)iround(alphaReference * 0x1000 / 0xFF);
-		factor.alphaReference4[2] = (word)iround(alphaReference * 0x1000 / 0xFF);
-		factor.alphaReference4[3] = (word)iround(alphaReference * 0x1000 / 0xFF);
-	}
-
 	void PixelProcessor::setPerspectiveCorrection(bool perspectiveEnable)
 	{
 		perspectiveCorrection = perspectiveEnable;
@@ -634,13 +564,8 @@ namespace sw
 			state.shaderID = 0;
 		}
 
-		state.depthOverride = context->pixelShader && context->pixelShader->depthOverride();
-		state.shaderContainsKill = context->pixelShader ? context->pixelShader->containsKill() : false;
-
 		if(context->alphaTestActive())
 		{
-			state.alphaCompareMode = context->alphaCompareMode;
-
 			state.transparencyAntialiasing = context->getMultiSampleCount() > 1 ? transparencyAntialiasing : TRANSPARENCY_NONE;
 		}
 
@@ -704,61 +629,10 @@ namespace sw
 
 		if(state.multiSample > 1 && context->pixelShader)
 		{
-			state.centroid = context->pixelShader->containsCentroid();
+			state.centroid = context->pixelShader->getModes().NeedsCentroid;
 		}
 
 		state.frontFaceCCW = context->frontFacingCCW;
-
-
-		for(unsigned int i = 0; i < 16; i++)
-		{
-			if(context->pixelShader)
-			{
-				if(context->pixelShader->usesSampler(i))
-				{
-					state.sampler[i] = context->sampler[i].samplerState();
-				}
-			}
-		}
-
-		const bool point = context->isDrawPoint();
-
-		for(int interpolant = 0; interpolant < MAX_FRAGMENT_INPUTS; interpolant++)
-		{
-			for(int component = 0; component < 4; component++)
-			{
-				const Shader::Semantic &semantic = context->pixelShader->getInput(interpolant, component);
-
-				if(semantic.active())
-				{
-					bool flat = point;
-
-					switch(semantic.usage)
-					{
-					case Shader::USAGE_TEXCOORD: flat = false;                  break;
-					case Shader::USAGE_COLOR:    flat = semantic.flat || point; break;
-					}
-
-					state.interpolant[interpolant].component |= 1 << component;
-
-					if(flat)
-					{
-						state.interpolant[interpolant].flat |= 1 << component;
-					}
-				}
-			}
-		}
-
-		if(state.centroid)
-		{
-			for(int interpolant = 0; interpolant < MAX_FRAGMENT_INPUTS; interpolant++)
-			{
-				for(int component = 0; component < 4; component++)
-				{
-					state.interpolant[interpolant].centroid = context->pixelShader->getInput(interpolant, 0).centroid;
-				}
-			}
-		}
 
 		state.hash = state.computeHash();
 
@@ -771,7 +645,6 @@ namespace sw
 
 		if(!routine)
 		{
-			const bool integerPipeline = (context->pixelShaderModel() <= 0x0104);
 			QuadRasterizer *generator = new PixelProgram(state, context->pixelShader);
 			generator->generate();
 			routine = (*generator)("PixelRoutine_%0.8X", state.shaderID);

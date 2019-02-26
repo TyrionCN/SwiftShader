@@ -34,76 +34,52 @@ namespace sw
 
 			int shaderID;
 
-			bool depthOverride                        : 1;   // TODO: Eliminate by querying shader.
-			bool shaderContainsKill                   : 1;   // TODO: Eliminate by querying shader.
+			VkCompareOp depthCompareMode;
+			bool depthWriteEnable;
+			bool quadLayoutDepthBuffer;
 
-			VkCompareOp depthCompareMode              : BITS(VK_COMPARE_OP_END_RANGE);
-			VkCompareOp alphaCompareMode              : BITS(VK_COMPARE_OP_END_RANGE);
-			bool depthWriteEnable                     : 1;
-			bool quadLayoutDepthBuffer                : 1;
+			bool stencilActive;
+			VkCompareOp stencilCompareMode;
+			VkStencilOp stencilFailOperation;
+			VkStencilOp stencilPassOperation;
+			VkStencilOp stencilZFailOperation;
+			bool noStencilMask;
+			bool noStencilWriteMask;
+			bool stencilWriteMasked;
+			bool twoSidedStencil;
+			VkCompareOp stencilCompareModeCCW;
+			VkStencilOp stencilFailOperationCCW;
+			VkStencilOp stencilPassOperationCCW;
+			VkStencilOp stencilZFailOperationCCW;
+			bool noStencilMaskCCW;
+			bool noStencilWriteMaskCCW;
+			bool stencilWriteMaskedCCW;
 
-			bool stencilActive                        : 1;
-			VkCompareOp stencilCompareMode            : BITS(VK_COMPARE_OP_END_RANGE);
-			VkStencilOp stencilFailOperation          : BITS(VK_STENCIL_OP_END_RANGE);
-			VkStencilOp stencilPassOperation          : BITS(VK_STENCIL_OP_END_RANGE);
-			VkStencilOp stencilZFailOperation         : BITS(VK_STENCIL_OP_END_RANGE);
-			bool noStencilMask                        : 1;
-			bool noStencilWriteMask                   : 1;
-			bool stencilWriteMasked                   : 1;
-			bool twoSidedStencil                      : 1;
-			VkCompareOp stencilCompareModeCCW         : BITS(VK_COMPARE_OP_END_RANGE);
-			VkStencilOp stencilFailOperationCCW       : BITS(VK_STENCIL_OP_END_RANGE);
-			VkStencilOp stencilPassOperationCCW       : BITS(VK_STENCIL_OP_END_RANGE);
-			VkStencilOp stencilZFailOperationCCW      : BITS(VK_STENCIL_OP_END_RANGE);
-			bool noStencilMaskCCW                     : 1;
-			bool noStencilWriteMaskCCW                : 1;
-			bool stencilWriteMaskedCCW                : 1;
+			bool depthTestActive;
+			bool occlusionEnabled;
+			bool perspective;
+			bool depthClamp;
 
-			bool depthTestActive                      : 1;
-			bool occlusionEnabled                     : 1;
-			bool perspective                          : 1;
-			bool depthClamp                           : 1;
+			bool alphaBlendActive;
+			VkBlendFactor sourceBlendFactor;
+			VkBlendFactor destBlendFactor;
+			VkBlendOp blendOperation;
+			VkBlendFactor sourceBlendFactorAlpha;
+			VkBlendFactor destBlendFactorAlpha;
+			VkBlendOp blendOperationAlpha;
 
-			bool alphaBlendActive                     : 1;
-			VkBlendFactor sourceBlendFactor           : BITS(VK_BLEND_FACTOR_END_RANGE);
-			VkBlendFactor destBlendFactor             : BITS(VK_BLEND_FACTOR_END_RANGE);
-			VkBlendOp blendOperation                  : BITS(VK_BLEND_OP_BLUE_EXT);
-			VkBlendFactor sourceBlendFactorAlpha      : BITS(VK_BLEND_FACTOR_END_RANGE);
-			VkBlendFactor destBlendFactorAlpha        : BITS(VK_BLEND_FACTOR_END_RANGE);
-			VkBlendOp blendOperationAlpha             : BITS(VK_BLEND_OP_BLUE_EXT);
-
-			unsigned int colorWriteMask                       : RENDERTARGETS * 4;   // Four component bit masks
+			unsigned int colorWriteMask;
 			VkFormat targetFormat[RENDERTARGETS];
-			bool writeSRGB                                    : 1;
-			unsigned int multiSample                          : 3;
-			unsigned int multiSampleMask                      : 4;
-			TransparencyAntialiasing transparencyAntialiasing : BITS(TRANSPARENCY_LAST);
-			bool centroid                                     : 1;
-			bool frontFaceCCW                                 : 1;
+			bool writeSRGB;
+			unsigned int multiSample;
+			unsigned int multiSampleMask;
+			TransparencyAntialiasing transparencyAntialiasing;
+			bool centroid;
+			bool frontFaceCCW;
 
-			VkLogicOp logicalOperation : BITS(VK_LOGIC_OP_END_RANGE);
+			VkLogicOp logicalOperation;
 
 			Sampler::State sampler[TEXTURE_IMAGE_UNITS];
-
-			struct Interpolant
-			{
-				unsigned char component : 4;
-				unsigned char flat : 4;
-				unsigned char project : 2;
-				bool centroid : 1;
-			};
-
-			union
-			{
-				struct
-				{
-					Interpolant color[2];
-					Interpolant texture[8];
-					Interpolant fog;
-				};
-
-				Interpolant interpolant[MAX_FRAGMENT_INPUTS];
-			};
 		};
 
 		struct State : States
@@ -119,7 +95,7 @@ namespace sw
 
 			bool alphaTestActive() const
 			{
-				return (alphaCompareMode != VK_COMPARE_OP_ALWAYS) || (transparencyAntialiasing != TRANSPARENCY_NONE);
+				return transparencyAntialiasing != TRANSPARENCY_NONE;
 			}
 
 			unsigned int hash;
@@ -169,14 +145,8 @@ namespace sw
 
 		virtual ~PixelProcessor();
 
-		void setFloatConstant(unsigned int index, const float value[4]);
-		void setIntegerConstant(unsigned int index, const int value[4]);
-		void setBooleanConstant(unsigned int index, int boolean);
-
-		void setUniformBuffer(int index, sw::Resource* buffer, int offset);
-		void lockUniformBuffers(byte** u, sw::Resource* uniformBuffers[]);
-
 		void setRenderTarget(int index, Surface *renderTarget, unsigned int layer = 0);
+		Surface *getRenderTarget(int index);
 		void setDepthBuffer(Surface *depthBuffer, unsigned int layer = 0);
 		void setStencilBuffer(Surface *stencilBuffer, unsigned int layer = 0);
 
@@ -210,9 +180,7 @@ namespace sw
 		void setWriteSRGB(bool sRGB);
 		void setDepthBufferEnable(bool depthBufferEnable);
 		void setDepthCompare(VkCompareOp depthCompareMode);
-		void setAlphaCompare(VkCompareOp alphaCompareMode);
 		void setDepthWriteEnable(bool depthWriteEnable);
-		void setAlphaTestEnable(bool alphaTestEnable);
 		void setCullMode(CullMode cullMode, bool frontFacingCCW);
 		void setColorWriteMask(int index, int rgbaMask);
 
@@ -248,8 +216,6 @@ namespace sw
 		void setDestBlendFactorAlpha(VkBlendFactor destBlendFactorAlpha);
 		void setBlendOperationAlpha(VkBlendOp blendOperationAlpha);
 
-		void setAlphaReference(float alphaReference);
-
 		void setPerspectiveCorrection(bool perspectiveCorrection);
 
 		void setOcclusionEnabled(bool enable);
@@ -259,28 +225,12 @@ namespace sw
 		Routine *routine(const State &state);
 		void setRoutineCacheSize(int routineCacheSize);
 
-		// Shader constants
-		float4 c[FRAGMENT_UNIFORM_VECTORS];
-		int4 i[16];
-		bool b[16];
-
 		// Other semi-constants
 		Stencil stencil;
 		Stencil stencilCCW;
 		Factor factor;
 
 	private:
-		struct UniformBufferInfo
-		{
-			UniformBufferInfo();
-
-			Resource* buffer;
-			int offset;
-		};
-		UniformBufferInfo uniformBufferInfo[MAX_UNIFORM_BUFFER_BINDINGS];
-
-		void setFogRanges(float start, float end);
-
 		Context *const context;
 
 		RoutineCache<State> *routineCache;

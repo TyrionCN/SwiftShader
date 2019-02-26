@@ -16,10 +16,9 @@
 
 #include "Primitive.hpp"
 #include "Surface.hpp"
-#include "Pipeline/PixelShader.hpp"
-#include "Pipeline/VertexShader.hpp"
 #include "System/Memory.hpp"
 #include "Vulkan/VkDebug.hpp"
+#include "Pipeline/SpirvShader.hpp"
 
 #include <string.h>
 
@@ -27,7 +26,6 @@ namespace sw
 {
 	extern bool perspectiveCorrection;
 
-	bool halfIntegerCoordinates = false;     // Pixel centers are not at integer coordinates
 	bool booleanFaceRegister = false;
 	bool fullPixelPositionRegister = false;
 	bool leadingVertexFirst = false;         // Flat shading uses first vertex, else last
@@ -191,9 +189,6 @@ namespace sw
 		stencilZFailOperationCCW = VK_STENCIL_OP_KEEP;
 		stencilWriteMaskCCW = 0xFFFFFFFF;
 
-		alphaCompareMode = VK_COMPARE_OP_ALWAYS;
-		alphaTestEnable = false;
-
 		rasterizerDiscard = false;
 
 		depthCompareMode = VK_COMPARE_OP_LESS;
@@ -228,8 +223,6 @@ namespace sw
 		instanceID = 0;
 
 		occlusionEnabled = false;
-		transformFeedbackQueryEnabled = false;
-		transformFeedbackEnabled = 0;
 
 		lineWidth = 1.0f;
 
@@ -340,12 +333,7 @@ namespace sw
 
 	bool Context::alphaTestActive()
 	{
-		if(transparencyAntialiasing != TRANSPARENCY_NONE) return true;
-		if(!alphaTestEnable) return false;
-		if(alphaCompareMode == VK_COMPARE_OP_ALWAYS) return false;
-		if(alphaReference == 0.0f && alphaCompareMode == VK_COMPARE_OP_GREATER_OR_EQUAL) return false;
-
-		return true;
+		return transparencyAntialiasing != TRANSPARENCY_NONE;
 	}
 
 	bool Context::depthBufferActive()
@@ -515,7 +503,7 @@ namespace sw
 			}
 			else
 			{
-				if(destBlendFactor() == VK_BLEND_OP_ZERO_EXT)
+				if(destBlendFactor() == VK_BLEND_FACTOR_ZERO)
 				{
 					return VK_BLEND_OP_ZERO_EXT;   // Negative, clamped to zero
 				}
@@ -683,7 +671,7 @@ namespace sw
 				}
 				else
 				{
-					if(destBlendFactorAlpha() == VK_BLEND_OP_ZERO_EXT)
+					if(destBlendFactorAlpha() == VK_BLEND_FACTOR_ZERO)
 					{
 						return VK_BLEND_OP_ZERO_EXT;   // Negative, clamped to zero
 					}
@@ -722,16 +710,6 @@ namespace sw
 		}
 
 		return true;
-	}
-
-	unsigned short Context::pixelShaderModel() const
-	{
-		return pixelShader ? pixelShader->getShaderModel() : 0x0000;
-	}
-
-	unsigned short Context::vertexShaderModel() const
-	{
-		return vertexShader ? vertexShader->getShaderModel() : 0x0000;
 	}
 
 	int Context::getMultiSampleCount() const
@@ -774,6 +752,6 @@ namespace sw
 
 	bool Context::colorUsed()
 	{
-		return colorWriteActive() || alphaTestActive() || (pixelShader && pixelShader->containsKill());
+		return colorWriteActive() || alphaTestActive() || (pixelShader && pixelShader->getModes().ContainsKill);
 	}
 }

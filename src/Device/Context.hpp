@@ -27,6 +27,7 @@ namespace sw
 	class Surface;
 	class PixelShader;
 	class VertexShader;
+	class SpirvShader;
 	struct Triangle;
 	struct Primitive;
 	struct Vertex;
@@ -153,9 +154,6 @@ namespace sw
 
 		VkLogicOp colorLogicOp();
 
-		unsigned short pixelShaderModel() const;
-		unsigned short vertexShaderModel() const;
-
 		int getMultiSampleCount() const;
 
 		DrawType drawType;
@@ -179,10 +177,7 @@ namespace sw
 		int stencilWriteMaskCCW;
 
 		// Pixel processor states
-		VkCompareOp alphaCompareMode;
-		bool alphaTestEnable;
-
-		CullMode cullMode;
+		VkCullModeFlags cullMode;
 		bool frontFacingCCW;
 		float alphaReference;
 
@@ -208,15 +203,13 @@ namespace sw
 		unsigned int stencilBufferLayer;
 
 		// Shaders
-		const PixelShader *pixelShader;
-		const VertexShader *vertexShader;
+		const SpirvShader *pixelShader;
+		const SpirvShader *vertexShader;
 
 		// Instancing
 		int instanceID;
 
 		bool occlusionEnabled;
-		bool transformFeedbackQueryEnabled;
-		uint64_t transformFeedbackEnabled;
 
 		// Pixel processor states
 		bool rasterizerDiscard;

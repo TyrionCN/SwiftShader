@@ -45,6 +45,8 @@ bool ImageView::imageTypesMatch(VkImageType imageType) const
 		case VK_IMAGE_VIEW_TYPE_1D:
 		case VK_IMAGE_VIEW_TYPE_1D_ARRAY:
 			return true;
+		default:
+			break;
 		}
 		break;
 	case VK_IMAGE_TYPE_2D:
@@ -56,6 +58,8 @@ bool ImageView::imageTypesMatch(VkImageType imageType) const
 		case VK_IMAGE_VIEW_TYPE_CUBE:
 		case VK_IMAGE_VIEW_TYPE_CUBE_ARRAY:
 			return isCube;
+		default:
+			break;
 		}
 		break;
 	case VK_IMAGE_TYPE_3D:
@@ -63,6 +67,8 @@ bool ImageView::imageTypesMatch(VkImageType imageType) const
 		{
 		case VK_IMAGE_VIEW_TYPE_3D:
 			return true;
+		default:
+			break;
 		}
 		break;
 	default:
@@ -86,8 +92,6 @@ void ImageView::clear(const VkClearValue& clearValue, const VkImageAspectFlags a
 		UNIMPLEMENTED();
 	}
 
-	VkImageSubresourceRange sr = subresourceRange;
-	sr.aspectMask = aspectMask;
 	image->clear(clearValue, renderArea, subresourceRange);
 }
 
@@ -113,6 +117,11 @@ void ImageView::clear(const VkClearValue& clearValue, const VkImageAspectFlags a
 	sr.layerCount = renderArea.layerCount;
 
 	image->clear(clearValue, renderArea.rect, sr);
+}
+
+sw::Surface *ImageView::asSurface()
+{
+	return image->asSurface(subresourceRange.aspectMask, subresourceRange.baseArrayLayer, subresourceRange.baseMipLevel);
 }
 
 }
