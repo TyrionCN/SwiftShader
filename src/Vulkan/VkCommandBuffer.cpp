@@ -140,6 +140,57 @@ struct VertexBufferBind : public CommandBuffer::Command
 	const VkDeviceSize offset;
 };
 
+struct IndexBufferBind : public CommandBuffer::Command
+{
+	IndexBufferBind(const VkBuffer buffer, const VkDeviceSize offset, const VkIndexType indexType) :
+		buffer(buffer), offset(offset), indexType(indexType)
+	{
+
+	}
+
+	void play(CommandBuffer::ExecutionState& executionState) override
+	{
+		executionState.indexBufferBinding = {buffer, offset};
+		executionState.indexType = indexType;
+	}
+
+	const VkBuffer buffer;
+	const VkDeviceSize offset;
+	const VkIndexType indexType;
+};
+
+void CommandBuffer::ExecutionState::bindAttachments()
+{
+	// Binds all the attachments for the current subpass
+	// Ideally this would be performed by BeginRenderPass and NextSubpass, but
+	// there is too much stomping of the renderer's state by setContext() in
+	// draws.
+
+	for (auto i = 0u; i < renderPass->getCurrentSubpass().colorAttachmentCount; i++)
+	{
+		auto attachmentReference = renderPass->getCurrentSubpass().pColorAttachments[i];
+		if (attachmentReference.attachment != VK_ATTACHMENT_UNUSED)
+		{
+			auto attachment = renderPassFramebuffer->getAttachment(attachmentReference.attachment);
+			renderer->setRenderTarget(i, attachment, 0);
+		}
+	}
+
+	auto attachmentReference = renderPass->getCurrentSubpass().pDepthStencilAttachment;
+	if (attachmentReference && attachmentReference->attachment != VK_ATTACHMENT_UNUSED)
+	{
+		auto attachment = renderPassFramebuffer->getAttachment(attachmentReference->attachment);
+		if (attachment->hasDepthAspect())
+		{
+			renderer->setDepthBuffer(attachment, 0);
+		}
+		if (attachment->hasStencilAspect())
+		{
+			renderer->setStencilBuffer(attachment, 0);
+		}
+	}
+}
+
 struct Draw : public CommandBuffer::Command
 {
 	Draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance)
@@ -155,9 +206,14 @@ struct Draw : public CommandBuffer::Command
 		sw::Context context = pipeline->getContext();
 		for(uint32_t i = 0; i < MAX_VERTEX_INPUT_BINDINGS; i++)
 		{
-			const auto& vertexInput = executionState.vertexInputBindings[i];
-			Buffer* buffer = Cast(vertexInput.buffer);
-			context.input[i].buffer = buffer ? buffer->getOffsetPointer(vertexInput.offset + context.input[i].stride * firstVertex) : nullptr;
+			auto &attrib = context.input[i];
+			if (attrib.count)
+			{
+				const auto &vertexInput = executionState.vertexInputBindings[attrib.binding];
+				Buffer *buffer = Cast(vertexInput.buffer);
+				attrib.buffer = buffer ? buffer->getOffsetPointer(
+						attrib.offset + vertexInput.offset + attrib.stride * firstVertex) : nullptr;
+			}
 		}
 
 		executionState.renderer->setContext(context);
@@ -165,44 +221,74 @@ struct Draw : public CommandBuffer::Command
 		executionState.renderer->setViewport(pipeline->getViewport());
 		executionState.renderer->setBlendConstant(pipeline->getBlendConstants());
 
-		for (auto i = 0u; i < executionState.renderPass->getCurrentSubpass().colorAttachmentCount; i++)
-		{
-			auto attachmentReference = executionState.renderPass->getCurrentSubpass().pColorAttachments[i];
-			if (attachmentReference.attachment != VK_ATTACHMENT_UNUSED)
-			{
-				auto attachment = executionState.renderPassFramebuffer->getAttachment(attachmentReference.attachment);
-				executionState.renderer->setRenderTarget(i, attachment->asSurface(), 0);
-			}
-		}
+		executionState.bindAttachments();
 
 		const uint32_t primitiveCount = pipeline->computePrimitiveCount(vertexCount);
 		const uint32_t lastInstance = firstInstance + instanceCount - 1;
 		for(uint32_t instance = firstInstance; instance <= lastInstance; instance++)
 		{
 			executionState.renderer->setInstanceID(instance);
-			executionState.renderer->draw(context.drawType, 0, primitiveCount);
-		}
-
-		// Wait for completion. We should be able to get rid of this eventually.
-		executionState.renderer->synchronize();
-
-		// Renderer has finished touching the color attachments; destroy the temporary Surface objects.
-		// We shouldn't need to do any of this at draw time.
-		for (auto i = 0u; i < executionState.renderPass->getCurrentSubpass().colorAttachmentCount; i++)
-		{
-			auto attachmentReference = executionState.renderPass->getCurrentSubpass().pColorAttachments[i];
-			if (attachmentReference.attachment != VK_ATTACHMENT_UNUSED)
-			{
-				auto surface = executionState.renderer->getRenderTarget(i);
-				executionState.renderer->setRenderTarget(i, nullptr, 0);
-				delete surface;
-			}
+			executionState.renderer->draw(context.drawType, primitiveCount);
 		}
 	}
 
 	uint32_t vertexCount;
 	uint32_t instanceCount;
 	uint32_t firstVertex;
+	uint32_t firstInstance;
+};
+
+struct DrawIndexed : public CommandBuffer::Command
+{
+	DrawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance)
+			: indexCount(indexCount), instanceCount(instanceCount), firstIndex(firstIndex), vertexOffset(vertexOffset), firstInstance(firstInstance)
+	{
+	}
+
+	void play(CommandBuffer::ExecutionState& executionState) override
+	{
+		GraphicsPipeline* pipeline = static_cast<GraphicsPipeline*>(
+				executionState.pipelines[VK_PIPELINE_BIND_POINT_GRAPHICS]);
+
+		sw::Context context = pipeline->getContext();
+		for(uint32_t i = 0; i < MAX_VERTEX_INPUT_BINDINGS; i++)
+		{
+			auto &attrib = context.input[i];
+			if (attrib.count)
+			{
+				const auto &vertexInput = executionState.vertexInputBindings[attrib.binding];
+				Buffer *buffer = Cast(vertexInput.buffer);
+				attrib.buffer = buffer ? buffer->getOffsetPointer(
+						attrib.offset + vertexInput.offset + attrib.stride * vertexOffset) : nullptr;
+			}
+		}
+
+		context.indexBuffer = Cast(executionState.indexBufferBinding.buffer)->getOffsetPointer(
+				executionState.indexBufferBinding.offset + firstIndex * (executionState.indexType == VK_INDEX_TYPE_UINT16 ? 2 : 4));
+
+		executionState.renderer->setContext(context);
+		executionState.renderer->setScissor(pipeline->getScissor());
+		executionState.renderer->setViewport(pipeline->getViewport());
+		executionState.renderer->setBlendConstant(pipeline->getBlendConstants());
+
+		executionState.bindAttachments();
+
+		auto drawType = executionState.indexType == VK_INDEX_TYPE_UINT16
+				? (context.drawType | sw::DRAW_INDEXED16) : (context.drawType | sw::DRAW_INDEXED32);
+
+		const uint32_t primitiveCount = pipeline->computePrimitiveCount(indexCount);
+		const uint32_t lastInstance = firstInstance + instanceCount - 1;
+		for(uint32_t instance = firstInstance; instance <= lastInstance; instance++)
+		{
+			executionState.renderer->setInstanceID(instance);
+			executionState.renderer->draw(static_cast<sw::DrawType>(drawType), primitiveCount);
+		}
+	}
+
+	uint32_t indexCount;
+	uint32_t instanceCount;
+	uint32_t firstIndex;
+	int32_t vertexOffset;
 	uint32_t firstInstance;
 };
 
@@ -396,10 +482,10 @@ struct PipelineBarrier : public CommandBuffer::Command
 
 	void play(CommandBuffer::ExecutionState& executionState) override
 	{
-		// This can currently be a noop. The sw::Surface locking/unlocking mechanism used by the renderer already takes care of
-		// making sure the read/writes always happen in order. Eventually, if we remove this synchronization mechanism, we can
-		// have a very simple implementation that simply calls sw::Renderer::sync(), since the driver is free to move the source
-		// stage towards the bottom of the pipe and the target stage towards the top, so a full pipeline sync is spec compliant.
+		// This is a very simple implementation that simply calls sw::Renderer::synchronize(),
+		// since the driver is free to move the source stage towards the bottom of the pipe
+		// and the target stage towards the top, so a full pipeline sync is spec compliant.
+		executionState.renderer->synchronize();
 
 		// Right now all buffers are read-only in drawcalls but a similar mechanism will be required once we support SSBOs.
 
@@ -441,6 +527,25 @@ private:
 	VkPipelineStageFlags stageMask; // FIXME(b/117835459) : We currently ignore the flags and reset the event at the last stage
 };
 
+struct BindDescriptorSet : public CommandBuffer::Command
+{
+	BindDescriptorSet(VkPipelineBindPoint pipelineBindPoint, uint32_t set, const VkDescriptorSet& descriptorSet)
+		: pipelineBindPoint(pipelineBindPoint), set(set), descriptorSet(descriptorSet)
+	{
+	}
+
+	void play(CommandBuffer::ExecutionState& executionState)
+	{
+		ASSERT((pipelineBindPoint < VK_PIPELINE_BIND_POINT_RANGE_SIZE) && (set < MAX_BOUND_DESCRIPTOR_SETS));
+		executionState.boundDescriptorSets[pipelineBindPoint][set] = descriptorSet;
+	}
+
+private:
+	VkPipelineBindPoint pipelineBindPoint;
+	uint32_t set;
+	const VkDescriptorSet descriptorSet;
+};
+
 CommandBuffer::CommandBuffer(VkCommandBufferLevel pLevel) : level(pLevel)
 {
 	// FIXME (b/119409619): replace this vector by an allocator so we can control all memory allocations
@@ -464,7 +569,12 @@ VkResult CommandBuffer::begin(VkCommandBufferUsageFlags flags, const VkCommandBu
 {
 	ASSERT((state != RECORDING) && (state != PENDING));
 
-	if(!((flags == 0) || (flags == VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT)) || pInheritanceInfo)
+	// Nothing interesting to do based on flags. We don't have any optimizations
+	// to apply for ONE_TIME_SUBMIT or (lack of) SIMULTANEOUS_USE. RENDER_PASS_CONTINUE
+	// must also provide a non-null pInheritanceInfo, which we don't implement yet, but is caught below.
+	(void) flags;
+
+	if(pInheritanceInfo)
 	{
 		UNIMPLEMENTED();
 	}
@@ -567,9 +677,9 @@ void CommandBuffer::bindPipeline(VkPipelineBindPoint pipelineBindPoint, VkPipeli
 void CommandBuffer::bindVertexBuffers(uint32_t firstBinding, uint32_t bindingCount,
                                       const VkBuffer* pBuffers, const VkDeviceSize* pOffsets)
 {
-	for(uint32_t i = firstBinding; i < (firstBinding + bindingCount); ++i)
+	for(uint32_t i = 0; i < bindingCount; ++i)
 	{
-		addCommand<VertexBufferBind>(i, pBuffers[i], pOffsets[i]);
+		addCommand<VertexBufferBind>(i + firstBinding, pBuffers[i], pOffsets[i]);
 	}
 }
 
@@ -692,12 +802,22 @@ void CommandBuffer::bindDescriptorSets(VkPipelineBindPoint pipelineBindPoint, Vk
 	uint32_t firstSet, uint32_t descriptorSetCount, const VkDescriptorSet* pDescriptorSets,
 	uint32_t dynamicOffsetCount, const uint32_t* pDynamicOffsets)
 {
-	UNIMPLEMENTED();
+	ASSERT(state == RECORDING);
+
+	if(dynamicOffsetCount > 0)
+	{
+		UNIMPLEMENTED();
+	}
+
+	for(uint32_t i = 0; i < descriptorSetCount; i++)
+	{
+		addCommand<BindDescriptorSet>(pipelineBindPoint, firstSet + i, pDescriptorSets[i]);
+	}
 }
 
 void CommandBuffer::bindIndexBuffer(VkBuffer buffer, VkDeviceSize offset, VkIndexType indexType)
 {
-	UNIMPLEMENTED();
+	addCommand<IndexBufferBind>(buffer, offset, indexType);
 }
 
 void CommandBuffer::dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ)
@@ -858,7 +978,7 @@ void CommandBuffer::draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t 
 
 void CommandBuffer::drawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance)
 {
-	UNIMPLEMENTED();
+	addCommand<DrawIndexed>(indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
 }
 
 void CommandBuffer::drawIndirect(VkBuffer buffer, VkDeviceSize offset, uint32_t drawCount, uint32_t stride)

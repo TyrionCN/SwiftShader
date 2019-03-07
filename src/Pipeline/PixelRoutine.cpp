@@ -29,8 +29,12 @@ namespace sw
 	extern bool exactColorRounding;
 	extern bool forceClearRegisters;
 
-	PixelRoutine::PixelRoutine(const PixelProcessor::State &state, SpirvShader const *spirvShader)
-		: QuadRasterizer(state, spirvShader)	/* addressing */
+	PixelRoutine::PixelRoutine(
+			const PixelProcessor::State &state,
+			vk::PipelineLayout const *pipelineLayout,
+			SpirvShader const *spirvShader)
+		: QuadRasterizer(state, spirvShader),
+		  routine(pipelineLayout)
 	{
 		spirvShader->emitProlog(&routine);
 
@@ -1077,101 +1081,6 @@ namespace sw
 			break;
 		case VK_BLEND_OP_ZERO_EXT:
 			current.w = Short4(0x0000);
-			break;
-		default:
-			ASSERT(false);
-		}
-	}
-
-	void PixelRoutine::logicOperation(int index, Pointer<Byte> &cBuffer, Vector4s &current, Int &x)
-	{
-		if(state.logicalOperation == VK_LOGIC_OP_COPY)
-		{
-			return;
-		}
-
-		Vector4s pixel;
-		readPixel(index, cBuffer, x, pixel);
-
-		switch(state.logicalOperation)
-		{
-		case VK_LOGIC_OP_CLEAR:
-			current.x = UShort4(0);
-			current.y = UShort4(0);
-			current.z = UShort4(0);
-			break;
-		case VK_LOGIC_OP_SET:
-			current.x = UShort4(0xFFFFu);
-			current.y = UShort4(0xFFFFu);
-			current.z = UShort4(0xFFFFu);
-			break;
-		case VK_LOGIC_OP_COPY:
-			ASSERT(false);   // Optimized out
-			break;
-		case VK_LOGIC_OP_COPY_INVERTED:
-			current.x = ~current.x;
-			current.y = ~current.y;
-			current.z = ~current.z;
-			break;
-		case VK_LOGIC_OP_NO_OP:
-			current.x = pixel.x;
-			current.y = pixel.y;
-			current.z = pixel.z;
-			break;
-		case VK_LOGIC_OP_INVERT:
-			current.x = ~pixel.x;
-			current.y = ~pixel.y;
-			current.z = ~pixel.z;
-			break;
-		case VK_LOGIC_OP_AND:
-			current.x = pixel.x & current.x;
-			current.y = pixel.y & current.y;
-			current.z = pixel.z & current.z;
-			break;
-		case VK_LOGIC_OP_NAND:
-			current.x = ~(pixel.x & current.x);
-			current.y = ~(pixel.y & current.y);
-			current.z = ~(pixel.z & current.z);
-			break;
-		case VK_LOGIC_OP_OR:
-			current.x = pixel.x | current.x;
-			current.y = pixel.y | current.y;
-			current.z = pixel.z | current.z;
-			break;
-		case VK_LOGIC_OP_NOR:
-			current.x = ~(pixel.x | current.x);
-			current.y = ~(pixel.y | current.y);
-			current.z = ~(pixel.z | current.z);
-			break;
-		case VK_LOGIC_OP_XOR:
-			current.x = pixel.x ^ current.x;
-			current.y = pixel.y ^ current.y;
-			current.z = pixel.z ^ current.z;
-			break;
-		case VK_LOGIC_OP_EQUIVALENT:
-			current.x = ~(pixel.x ^ current.x);
-			current.y = ~(pixel.y ^ current.y);
-			current.z = ~(pixel.z ^ current.z);
-			break;
-		case VK_LOGIC_OP_AND_REVERSE:
-			current.x = ~pixel.x & current.x;
-			current.y = ~pixel.y & current.y;
-			current.z = ~pixel.z & current.z;
-			break;
-		case VK_LOGIC_OP_AND_INVERTED:
-			current.x = pixel.x & ~current.x;
-			current.y = pixel.y & ~current.y;
-			current.z = pixel.z & ~current.z;
-			break;
-		case VK_LOGIC_OP_OR_REVERSE:
-			current.x = ~pixel.x | current.x;
-			current.y = ~pixel.y | current.y;
-			current.z = ~pixel.z | current.z;
-			break;
-		case VK_LOGIC_OP_OR_INVERTED:
-			current.x = pixel.x | ~current.x;
-			current.y = pixel.y | ~current.y;
-			current.z = pixel.z | ~current.z;
 			break;
 		default:
 			ASSERT(false);

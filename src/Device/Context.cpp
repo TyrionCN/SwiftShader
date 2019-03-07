@@ -18,6 +18,7 @@
 #include "Surface.hpp"
 #include "System/Memory.hpp"
 #include "Vulkan/VkDebug.hpp"
+#include "Vulkan/VkImageView.hpp"
 #include "Pipeline/SpirvShader.hpp"
 
 #include <string.h>
@@ -192,8 +193,8 @@ namespace sw
 		rasterizerDiscard = false;
 
 		depthCompareMode = VK_COMPARE_OP_LESS;
-		depthBufferEnable = true;
-		depthWriteEnable = true;
+		depthBufferEnable = false;
+		depthWriteEnable = false;
 
 		alphaBlendEnable = false;
 		sourceBlendFactorState = VK_BLEND_FACTOR_ONE;
@@ -217,6 +218,8 @@ namespace sw
 			colorWriteMask[i] = 0x0000000F;
 		}
 
+		pipelineLayout = nullptr;
+
 		pixelShader = nullptr;
 		vertexShader = nullptr;
 
@@ -228,9 +231,6 @@ namespace sw
 
 		writeSRGB = false;
 		sampleMask = 0xFFFFFFFF;
-
-		colorLogicOpEnabled = false;
-		logicalOperation = VK_LOGIC_OP_COPY;
 	}
 
 	bool Context::setDepthBufferEnable(bool depthBufferEnable)
@@ -310,20 +310,6 @@ namespace sw
 		return modified;
 	}
 
-	bool Context::setColorLogicOpEnabled(bool enabled)
-	{
-		bool modified = (Context::colorLogicOpEnabled != enabled);
-		Context::colorLogicOpEnabled = enabled;
-		return modified;
-	}
-
-	bool Context::setLogicalOperation(VkLogicOp logicalOperation)
-	{
-		bool modified = (Context::logicalOperation != logicalOperation);
-		Context::logicalOperation = logicalOperation;
-		return modified;
-	}
-
 	bool Context::depthWriteActive()
 	{
 		if(!depthBufferActive()) return false;
@@ -362,11 +348,6 @@ namespace sw
 		bool alphaBlend = separateAlphaBlendEnable ? !(blendOperationAlpha() == VK_BLEND_OP_SRC_EXT && sourceBlendFactorAlpha() == VK_BLEND_FACTOR_ONE) : colorBlend;
 
 		return colorBlend || alphaBlend;
-	}
-
-	VkLogicOp Context::colorLogicOp()
-	{
-		return colorLogicOpEnabled ? logicalOperation : VK_LOGIC_OP_COPY;
 	}
 
 	VkBlendFactor Context::sourceBlendFactor()
@@ -712,16 +693,11 @@ namespace sw
 		return true;
 	}
 
-	int Context::getMultiSampleCount() const
-	{
-		return renderTarget[0] ? renderTarget[0]->getMultiSampleCount() : 1;
-	}
-
 	VkFormat Context::renderTargetInternalFormat(int index)
 	{
 		if(renderTarget[index])
 		{
-			return renderTarget[index]->getInternalFormat();
+			return renderTarget[index]->getFormat();
 		}
 		else
 		{
@@ -729,14 +705,22 @@ namespace sw
 		}
 	}
 
-	int Context::colorWriteActive()
+	bool Context::colorWriteActive()
 	{
-		return colorWriteActive(0) | colorWriteActive(1) | colorWriteActive(2) | colorWriteActive(3);
+		for (int i = 0; i < RENDERTARGETS; i++)
+		{
+			if (colorWriteActive(i))
+			{
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	int Context::colorWriteActive(int index)
 	{
-		if(!renderTarget[index] || renderTarget[index]->getInternalFormat() == VK_FORMAT_UNDEFINED)
+		if(!renderTarget[index] || renderTarget[index]->getFormat() == VK_FORMAT_UNDEFINED)
 		{
 			return 0;
 		}

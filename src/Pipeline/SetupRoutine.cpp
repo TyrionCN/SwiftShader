@@ -83,7 +83,7 @@ namespace sw
 				Float y1 = Float(Y[1]);
 				Float y2 = Float(Y[2]);
 
-				Float A = (y2 - y0) * x1 + (y1 - y2) * x0 + (y0 - y1) * x2;   // Area
+				Float A = (y0 - y2) * x1 + (y2 - y1) * x0 + (y1 - y0) * x2;   // Area
 
 				If(A == 0.0f)
 				{
@@ -107,7 +107,7 @@ namespace sw
 					If(!frontFacing) Return(false);
 				}
 
-				d = IfThenElse(A < 0.0f, d, Int(0));
+				d = IfThenElse(A > 0.0f, d, Int(0));
 
 				if(state.twoSidedStencil)
 				{
@@ -454,13 +454,17 @@ namespace sw
 
 			for (int interpolant = 0; interpolant < MAX_INTERFACE_COMPONENTS; interpolant++)
 			{
-				// TODO: fix point, perspective, etc. Not convinced various edge cases are really correct here for either VK or GL.
+				// TODO: fix `perspective` throughout interpolation code to consider NoPerspective-decorated interpolants,
+				// which were not individually-controllable in the GLES implementation.
+				// Note: `sprite` mode controls whether to replace this interpolant with the point sprite PointCoord value.
+				// This was an interesting thing to support for old GL because any texture coordinate could be replaced in this way.
+				// In modern GL and in Vulkan, the [gl_]PointCoord builtin variable to the fragment shader is used instead.
 				if (state.gradient[interpolant].Type != SpirvShader::ATTRIBTYPE_UNUSED)
 					setupGradient(primitive, tri, w012, M, v0, v1, v2,
 							OFFSET(Vertex, v[interpolant]),
 							OFFSET(Primitive, V[interpolant]),
 							state.gradient[interpolant].Flat,
-							point,
+							false /* is pointcoord */,
 							state.perspective, 0);
 			}
 

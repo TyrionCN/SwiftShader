@@ -25,7 +25,9 @@ namespace sw
 	class PixelRoutine : public sw::QuadRasterizer, public ShaderCore
 	{
 	public:
-		PixelRoutine(const PixelProcessor::State &state, SpirvShader const *spirvShader);
+		PixelRoutine(const PixelProcessor::State &state,
+			vk::PipelineLayout const *pipelineLayout,
+			SpirvShader const *spirvShader);
 
 		virtual ~PixelRoutine();
 
@@ -51,7 +53,6 @@ namespace sw
 
 		// Raster operations
 		void alphaBlend(int index, Pointer<Byte> &cBuffer, Vector4s &current, Int &x);
-		void logicOperation(int index, Pointer<Byte> &cBuffer, Vector4s &current, Int &x);
 		void writeColor(int index, Pointer<Byte> &cBuffer, Int &i, Vector4s &current, Int &sMask, Int &zMask, Int &cMask);
 		void alphaBlend(int index, Pointer<Byte> &cBuffer, Vector4f &oC, Int &x);
 		void writeColor(int index, Pointer<Byte> &cBuffer, Int &i, Vector4f &oC, Int &sMask, Int &zMask, Int &cMask);

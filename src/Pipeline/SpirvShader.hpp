@@ -15,11 +15,14 @@
 #ifndef sw_SpirvShader_hpp
 #define sw_SpirvShader_hpp
 
-#include "System/Types.hpp"
-#include "Vulkan/VkDebug.hpp"
 #include "ShaderCore.hpp"
 #include "SpirvID.hpp"
+#include "System/Types.hpp"
+#include "Vulkan/VkDebug.hpp"
+#include "Vulkan/VkConfig.h"
 
+#include <array>
+#include <cstring>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -29,8 +32,30 @@
 #include <spirv/unified1/spirv.hpp>
 #include <Device/Config.hpp>
 
+namespace vk
+{
+	class PipelineLayout;
+} // namespace vk
+
 namespace sw
 {
+	// Forward declarations.
+	class SpirvRoutine;
+
+	// SIMD contains types that represent multiple scalars packed into a single
+	// vector data type. Types in the SIMD namespace provide a semantic hint
+	// that the data should be treated as a per-execution-lane scalar instead of
+	// a typical euclidean-style vector type.
+	namespace SIMD
+	{
+		// Width is the number of per-lane scalars packed into each SIMD vector.
+		static constexpr int Width = 4;
+
+		using Float = rr::Float4;
+		using Int = rr::Int4;
+		using UInt = rr::UInt4;
+	}
+
 	// Incrementally constructed complex bundle of rvalues
 	// Effectively a restricted vector, supporting only:
 	// - allocation to a (runtime-known) fixed size
@@ -39,9 +64,13 @@ namespace sw
 	class Intermediate
 	{
 	public:
-		using Scalar = RValue<Float4>;
+		using Scalar = RValue<SIMD::Float>;
 
-		Intermediate(uint32_t size) : contents(new ContentsType[size]), size(size) {}
+		Intermediate(uint32_t size) : contents(new ContentsType[size]), size(size) {
+#if !defined(NDEBUG) || defined(DCHECK_ALWAYS_ON)
+			memset(contents, 0, sizeof(ContentsType) * size);
+#endif
+		}
 
 		~Intermediate()
 		{
@@ -52,14 +81,24 @@ namespace sw
 
 		void emplace(uint32_t n, Scalar&& value)
 		{
-			assert(n < size);
+			ASSERT(n < size);
+			ASSERT(reinterpret_cast<Scalar const *>(&contents[n])->value == nullptr);
+			new (&contents[n]) Scalar(value);
+		}
+
+		void emplace(uint32_t n, const Scalar& value)
+		{
+			ASSERT(n < size);
+			ASSERT(reinterpret_cast<Scalar const *>(&contents[n])->value == nullptr);
 			new (&contents[n]) Scalar(value);
 		}
 
 		Scalar const & operator[](uint32_t n) const
 		{
-			assert(n < size);
-			return *reinterpret_cast<Scalar const *>(&contents[n]);
+			ASSERT(n < size);
+			auto scalar = reinterpret_cast<Scalar const *>(&contents[n]);
+			ASSERT(scalar->value != nullptr);
+			return *scalar;
 		}
 
 		// No copy/move construction or assignment
@@ -74,8 +113,6 @@ namespace sw
 		ContentsType *contents;
 		uint32_t size;
 	};
-
-	class SpirvRoutine;
 
 	class SpirvShader
 	{
@@ -251,9 +288,13 @@ namespace sw
 		{
 			int32_t Location;
 			int32_t Component;
+			int32_t DescriptorSet;
+			int32_t Binding;
 			spv::BuiltIn BuiltIn;
 			bool HasLocation : 1;
 			bool HasComponent : 1;
+			bool HasDescriptorSet : 1;
+			bool HasBinding : 1;
 			bool HasBuiltIn : 1;
 			bool Flat : 1;
 			bool Centroid : 1;
@@ -262,10 +303,12 @@ namespace sw
 			bool BufferBlock : 1;
 
 			Decorations()
-					: Location{-1}, Component{0}, BuiltIn{}, HasLocation{false}, HasComponent{false}, HasBuiltIn{false},
-					  Flat{false},
-					  Centroid{false}, NoPerspective{false}, Block{false},
-					  BufferBlock{false}
+					: Location{-1}, Component{0}, DescriptorSet{-1}, Binding{-1},
+					  BuiltIn{static_cast<spv::BuiltIn>(-1)},
+					  HasLocation{false}, HasComponent{false},
+					  HasDescriptorSet{false}, HasBinding{false},
+					  HasBuiltIn{false}, Flat{false}, Centroid{false},
+					  NoPerspective{false}, Block{false}, BufferBlock{false}
 			{
 			}
 
@@ -313,14 +356,14 @@ namespace sw
 		Type const &getType(TypeID id) const
 		{
 			auto it = types.find(id);
-			assert(it != types.end());
+			ASSERT(it != types.end());
 			return it->second;
 		}
 
 		Object const &getObject(ObjectID id) const
 		{
 			auto it = defs.find(id);
-			assert(it != defs.end());
+			ASSERT(it != defs.end());
 			return it->second;
 		}
 
@@ -330,6 +373,10 @@ namespace sw
 		Modes modes;
 		HandleMap<Type> types;
 		HandleMap<Object> defs;
+
+		// DeclareType creates a Type for the given OpTypeX instruction, storing
+		// it into the types map. It is called from the analysis pass (constructor).
+		void DeclareType(InsnIterator insn);
 
 		void ProcessExecutionMode(InsnIterator it);
 
@@ -348,13 +395,37 @@ namespace sw
 
 		void ProcessInterfaceVariable(Object &object);
 
-		Int4 WalkAccessChain(ObjectID id, uint32_t numIndexes, uint32_t const *indexIds, SpirvRoutine *routine) const;
+		SIMD::Int WalkAccessChain(ObjectID id, uint32_t numIndexes, uint32_t const *indexIds, SpirvRoutine *routine) const;
+		uint32_t WalkLiteralAccessChain(TypeID id, uint32_t numIndexes, uint32_t const *indexes) const;
+
+		// Emit pass instructions:
+		void EmitVariable(InsnIterator insn, SpirvRoutine *routine) const;
+		void EmitLoad(InsnIterator insn, SpirvRoutine *routine) const;
+		void EmitStore(InsnIterator insn, SpirvRoutine *routine) const;
+		void EmitAccessChain(InsnIterator insn, SpirvRoutine *routine) const;
+		void EmitCompositeConstruct(InsnIterator insn, SpirvRoutine *routine) const;
+		void EmitCompositeInsert(InsnIterator insn, SpirvRoutine *routine) const;
+		void EmitCompositeExtract(InsnIterator insn, SpirvRoutine *routine) const;
+		void EmitVectorShuffle(InsnIterator insn, SpirvRoutine *routine) const;
+		void EmitUnaryOp(InsnIterator insn, SpirvRoutine *routine) const;
+		void EmitBinaryOp(InsnIterator insn, SpirvRoutine *routine) const;
+		void EmitDot(InsnIterator insn, SpirvRoutine *routine) const;
+		void EmitSelect(InsnIterator insn, SpirvRoutine *routine) const;
+
+		// OpcodeName returns the name of the opcode op.
+		// If NDEBUG is defined, then OpcodeName will only return the numerical code.
+		static std::string OpcodeName(spv::Op op);
 	};
 
 	class SpirvRoutine
 	{
 	public:
-		using Value = Array<Float4>;
+		SpirvRoutine(vk::PipelineLayout const *pipelineLayout);
+
+		using Value = Array<SIMD::Float>;
+
+		vk::PipelineLayout const * const pipelineLayout;
+
 		std::unordered_map<SpirvShader::ObjectID, Value> lvalues;
 
 		std::unordered_map<SpirvShader::ObjectID, Intermediate> intermediates;
@@ -362,30 +433,58 @@ namespace sw
 		Value inputs = Value{MAX_INTERFACE_COMPONENTS};
 		Value outputs = Value{MAX_INTERFACE_COMPONENTS};
 
+		std::array<Pointer<Byte>, vk::MAX_BOUND_DESCRIPTOR_SETS> descriptorSets;
+
 		void createLvalue(SpirvShader::ObjectID id, uint32_t size)
 		{
 			lvalues.emplace(id, Value(size));
 		}
 
-		void createIntermediate(SpirvShader::ObjectID id, uint32_t size)
+		Intermediate& createIntermediate(SpirvShader::ObjectID id, uint32_t size)
 		{
-			intermediates.emplace(std::piecewise_construct,
+			auto it = intermediates.emplace(std::piecewise_construct,
 					std::forward_as_tuple(id),
 					std::forward_as_tuple(size));
+			return it.first->second;
 		}
 
 		Value& getValue(SpirvShader::ObjectID id)
 		{
 			auto it = lvalues.find(id);
-			assert(it != lvalues.end());
+			ASSERT(it != lvalues.end());
 			return it->second;
 		}
 
-		Intermediate& getIntermediate(SpirvShader::ObjectID id)
+		Intermediate const& getIntermediate(SpirvShader::ObjectID id) const
 		{
 			auto it = intermediates.find(id);
-			assert(it != intermediates.end());
+			ASSERT(it != intermediates.end());
 			return it->second;
+		}
+	};
+
+	class GenericValue
+	{
+		// Generic wrapper over either per-lane intermediate value, or a constant.
+		// Constants are transparently widened to per-lane values in operator[].
+		// This is appropriate in most cases -- if we're not going to do something
+		// significantly different based on whether the value is uniform across lanes.
+
+		SpirvShader::Object const &obj;
+		Intermediate const *intermediate;
+
+	public:
+		GenericValue(SpirvShader const *shader, SpirvRoutine const *routine, SpirvShader::ObjectID objId) :
+				obj(shader->getObject(objId)),
+				intermediate(obj.kind == SpirvShader::Object::Kind::Value ? &routine->getIntermediate(objId) : nullptr) {}
+
+		RValue<SIMD::Float> operator[](uint32_t i) const
+		{
+			if (intermediate)
+				return (*intermediate)[i];
+
+			auto constantValue = reinterpret_cast<float *>(obj.constantValue.get());
+			return RValue<SIMD::Float>(constantValue[i]);
 		}
 	};
 

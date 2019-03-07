@@ -150,7 +150,7 @@ const VkPhysicalDeviceLimits& PhysicalDevice::getLimits() const
 		4000, // maxSamplerAllocationCount
 		131072, // bufferImageGranularity
 		0, // sparseAddressSpaceSize (unsupported)
-		4, // maxBoundDescriptorSets
+		MAX_BOUND_DESCRIPTOR_SETS, // maxBoundDescriptorSets
 		16, // maxPerStageDescriptorSamplers
 		12, // maxPerStageDescriptorUniformBuffers
 		4, // maxPerStageDescriptorStorageBuffers
@@ -234,7 +234,7 @@ const VkPhysicalDeviceLimits& PhysicalDevice::getLimits() const
 		8, // maxCullDistances
 		8, // maxCombinedClipAndCullDistances
 		2, // discreteQueuePriorities
-		{ 1.0, 64.0 }, // pointSizeRange[2]
+		{ 1.0, vk::MAX_POINT_SIZE }, // pointSizeRange[2]
 		{ 1.0, 1.0 }, // lineWidthRange[2] (unsupported)
 		0.0, // pointSizeGranularity (unsupported)
 		0.0, // lineWidthGranularity (unsupported)

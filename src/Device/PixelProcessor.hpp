@@ -77,8 +77,6 @@ namespace sw
 			bool centroid;
 			bool frontFaceCCW;
 
-			VkLogicOp logicalOperation;
-
 			Sampler::State sampler[TEXTURE_IMAGE_UNITS];
 		};
 
@@ -145,37 +143,9 @@ namespace sw
 
 		virtual ~PixelProcessor();
 
-		void setRenderTarget(int index, Surface *renderTarget, unsigned int layer = 0);
-		Surface *getRenderTarget(int index);
-		void setDepthBuffer(Surface *depthBuffer, unsigned int layer = 0);
-		void setStencilBuffer(Surface *stencilBuffer, unsigned int layer = 0);
-
-		void setTexCoordIndex(unsigned int stage, int texCoordIndex);
-		void setConstantColor(unsigned int stage, const Color<float> &constantColor);
-		void setBumpmapMatrix(unsigned int stage, int element, float value);
-		void setLuminanceScale(unsigned int stage, float value);
-		void setLuminanceOffset(unsigned int stage, float value);
-
-		void setTextureFilter(unsigned int sampler, FilterType textureFilter);
-		void setMipmapFilter(unsigned int sampler, MipmapType mipmapFilter);
-		void setGatherEnable(unsigned int sampler, bool enable);
-		void setAddressingModeU(unsigned int sampler, AddressingMode addressingMode);
-		void setAddressingModeV(unsigned int sampler, AddressingMode addressingMode);
-		void setAddressingModeW(unsigned int sampler, AddressingMode addressingMode);
-		void setReadSRGB(unsigned int sampler, bool sRGB);
-		void setMipmapLOD(unsigned int sampler, float bias);
-		void setBorderColor(unsigned int sampler, const Color<float> &borderColor);
-		void setMaxAnisotropy(unsigned int sampler, float maxAnisotropy);
-		void setHighPrecisionFiltering(unsigned int sampler, bool highPrecisionFiltering);
-		void setSwizzleR(unsigned int sampler, SwizzleType swizzleR);
-		void setSwizzleG(unsigned int sampler, SwizzleType swizzleG);
-		void setSwizzleB(unsigned int sampler, SwizzleType swizzleB);
-		void setSwizzleA(unsigned int sampler, SwizzleType swizzleA);
-		void setCompareFunc(unsigned int sampler, CompareFunc compare);
-		void setBaseLevel(unsigned int sampler, int baseLevel);
-		void setMaxLevel(unsigned int sampler, int maxLevel);
-		void setMinLod(unsigned int sampler, float minLod);
-		void setMaxLod(unsigned int sampler, float maxLod);
+		void setRenderTarget(int index, vk::ImageView *renderTarget, unsigned int layer = 0);
+		void setDepthBuffer(vk::ImageView *depthBuffer, unsigned int layer = 0);
+		void setStencilBuffer(vk::ImageView *stencilBuffer, unsigned int layer = 0);
 
 		void setWriteSRGB(bool sRGB);
 		void setDepthBufferEnable(bool depthBufferEnable);

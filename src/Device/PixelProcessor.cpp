@@ -19,6 +19,7 @@
 #include "Pipeline/PixelProgram.hpp"
 #include "Pipeline/Constants.hpp"
 #include "Vulkan/VkDebug.hpp"
+#include "Vulkan/VkImageView.hpp"
 
 #include <string.h>
 
@@ -70,222 +71,27 @@ namespace sw
 		routineCache = nullptr;
 	}
 
-	void PixelProcessor::setRenderTarget(int index, Surface *renderTarget, unsigned int layer)
+	void PixelProcessor::setRenderTarget(int index, vk::ImageView* renderTarget, unsigned int layer)
 	{
 		context->renderTarget[index] = renderTarget;
 		context->renderTargetLayer[index] = layer;
 	}
 
-	Surface *PixelProcessor::getRenderTarget(int index)
-	{
-		return context->renderTarget[index];
-	}
-
-	void PixelProcessor::setDepthBuffer(Surface *depthBuffer, unsigned int layer)
+	void PixelProcessor::setDepthBuffer(vk::ImageView *depthBuffer, unsigned int layer)
 	{
 		context->depthBuffer = depthBuffer;
 		context->depthBufferLayer = layer;
 	}
 
-	void PixelProcessor::setStencilBuffer(Surface *stencilBuffer, unsigned int layer)
+	void PixelProcessor::setStencilBuffer(vk::ImageView *stencilBuffer, unsigned int layer)
 	{
 		context->stencilBuffer = stencilBuffer;
 		context->stencilBufferLayer = layer;
 	}
 
-	void PixelProcessor::setTextureFilter(unsigned int sampler, FilterType textureFilter)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setTextureFilter(textureFilter);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setMipmapFilter(unsigned int sampler, MipmapType mipmapFilter)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setMipmapFilter(mipmapFilter);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setGatherEnable(unsigned int sampler, bool enable)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setGatherEnable(enable);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setAddressingModeU(unsigned int sampler, AddressingMode addressMode)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setAddressingModeU(addressMode);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setAddressingModeV(unsigned int sampler, AddressingMode addressMode)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setAddressingModeV(addressMode);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setAddressingModeW(unsigned int sampler, AddressingMode addressMode)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setAddressingModeW(addressMode);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setReadSRGB(unsigned int sampler, bool sRGB)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setReadSRGB(sRGB);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setMipmapLOD(unsigned int sampler, float bias)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setMipmapLOD(bias);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setBorderColor(unsigned int sampler, const Color<float> &borderColor)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setBorderColor(borderColor);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setMaxAnisotropy(unsigned int sampler, float maxAnisotropy)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setMaxAnisotropy(maxAnisotropy);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setHighPrecisionFiltering(unsigned int sampler, bool highPrecisionFiltering)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setHighPrecisionFiltering(highPrecisionFiltering);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setSwizzleR(unsigned int sampler, SwizzleType swizzleR)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setSwizzleR(swizzleR);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setSwizzleG(unsigned int sampler, SwizzleType swizzleG)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setSwizzleG(swizzleG);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setSwizzleB(unsigned int sampler, SwizzleType swizzleB)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setSwizzleB(swizzleB);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setSwizzleA(unsigned int sampler, SwizzleType swizzleA)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setSwizzleA(swizzleA);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setCompareFunc(unsigned int sampler, CompareFunc compFunc)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setCompareFunc(compFunc);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setBaseLevel(unsigned int sampler, int baseLevel)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setBaseLevel(baseLevel);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setMaxLevel(unsigned int sampler, int maxLevel)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setMaxLevel(maxLevel);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setMinLod(unsigned int sampler, float minLod)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setMinLod(minLod);
-		}
-		else ASSERT(false);
-	}
-
-	void PixelProcessor::setMaxLod(unsigned int sampler, float maxLod)
-	{
-		if(sampler < TEXTURE_IMAGE_UNITS)
-		{
-			context->sampler[sampler].setMaxLod(maxLod);
-		}
-		else ASSERT(false);
-	}
-
 	void PixelProcessor::setWriteSRGB(bool sRGB)
 	{
 		context->setWriteSRGB(sRGB);
-	}
-
-	void PixelProcessor::setColorLogicOpEnabled(bool colorLogicOpEnabled)
-	{
-		context->setColorLogicOpEnabled(colorLogicOpEnabled);
-	}
-
-	void PixelProcessor::setLogicalOperation(VkLogicOp logicalOperation)
-	{
-		context->setLogicalOperation(logicalOperation);
 	}
 
 	void PixelProcessor::setDepthBufferEnable(bool depthBufferEnable)
@@ -566,7 +372,7 @@ namespace sw
 
 		if(context->alphaTestActive())
 		{
-			state.transparencyAntialiasing = context->getMultiSampleCount() > 1 ? transparencyAntialiasing : TRANSPARENCY_NONE;
+			state.transparencyAntialiasing = context->sampleCount > 1 ? transparencyAntialiasing : TRANSPARENCY_NONE;
 		}
 
 		state.depthWriteEnable = context->depthWriteActive();
@@ -596,7 +402,7 @@ namespace sw
 		{
 			state.depthTestActive = true;
 			state.depthCompareMode = context->depthCompareMode;
-			state.quadLayoutDepthBuffer = Surface::hasQuadLayout(context->depthBuffer->getInternalFormat());
+			state.quadLayoutDepthBuffer = Surface::hasQuadLayout(context->depthBuffer->getFormat());
 		}
 
 		state.occlusionEnabled = context->occlusionEnabled;
@@ -615,16 +421,14 @@ namespace sw
 			state.blendOperationAlpha = context->blendOperationAlpha();
 		}
 
-		state.logicalOperation = context->colorLogicOp();
-
 		for(int i = 0; i < RENDERTARGETS; i++)
 		{
 			state.colorWriteMask |= context->colorWriteActive(i) << (4 * i);
 			state.targetFormat[i] = context->renderTargetInternalFormat(i);
 		}
 
-		state.writeSRGB	= context->writeSRGB && context->renderTarget[0] && Surface::isSRGBwritable(context->renderTarget[0]->getExternalFormat());
-		state.multiSample = context->getMultiSampleCount();
+		state.writeSRGB	= context->writeSRGB && context->renderTarget[0] && Surface::isSRGBwritable(context->renderTarget[0]->getFormat());
+		state.multiSample = context->sampleCount;
 		state.multiSampleMask = context->multiSampleMask;
 
 		if(state.multiSample > 1 && context->pixelShader)
@@ -645,7 +449,7 @@ namespace sw
 
 		if(!routine)
 		{
-			QuadRasterizer *generator = new PixelProgram(state, context->pixelShader);
+			QuadRasterizer *generator = new PixelProgram(state, context->pipelineLayout, context->pixelShader);
 			generator->generate();
 			routine = (*generator)("PixelRoutine_%0.8X", state.shaderID);
 			delete generator;

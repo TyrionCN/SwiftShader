@@ -77,6 +77,7 @@ option (ASAN "Build with address sanitizer" 0)
 option (TSAN "Build with thread sanitizer" 0)
 option (UBSAN "Build with undefined behavior sanitizer" 0)
 option (WARNINGS_AS_ERRORS "Treat all warnings as errors" 0)
+option (DCHECK_ALWAYS_ON "Check validation macros even in release builds" 0)
 
 if(ARCH STREQUAL "arm")
     set(DEFAULT_REACTOR_BACKEND "Subzero")
@@ -271,12 +272,15 @@ else()
         set_cpp_flag("-Werror") # Treat all warnings as errors
     endif()
 
+    if(DCHECK_ALWAYS_ON)
+        set_cpp_flag("-DDCHECK_ALWAYS_ON")
+    endif()
+
     # Disable pedanitc warnings
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-        set_cpp_flag("-Wno-ignored-attributes") # ignoring attributes on template argument 'X'
-        set_cpp_flag("-Wno-attributes")         # 'X' attribute ignored
-        set_cpp_flag("-Wno-comment")            # multi-line comment
-        set_cpp_flag("-Wno-noexcept-type")      # mangled name for ‘X’ will change in C++17 because the exception specification is part of a function type
+        set_cpp_flag("-Wno-ignored-attributes")  # ignoring attributes on template argument 'X'
+        set_cpp_flag("-Wno-attributes")          # 'X' attribute ignored
+        set_cpp_flag("-Wno-strict-aliasing")     # dereferencing type-punned pointer will break strict-aliasing rules
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         set_cpp_flag("-Wno-unneeded-internal-declaration") # function 'X' is not needed and will not be emitted
         set_cpp_flag("-Wno-unused-private-field")          # private field 'offset' is not used - TODO: Consider enabling this once Vulkan is further implemented.
@@ -1762,10 +1766,23 @@ list(APPEND LLVM_INCLUDE_DIR
 
 endif()  # REACTOR_LLVM_VERSION
 
+# Suppress known LLVM warnings
+set(LLVM_COMPILE_FLAGS)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    list(APPEND LLVM_COMPILE_FLAGS
+        "-Wno-comment"                 # multi-line comment
+        "-Wno-noexcept-type"           # mangled name for ‘X’ will change in C++17 because the exception specification is part of a function type
+        "-Wno-maybe-uninitialized"     # ‘X’ may be used uninitialized in this function
+        "-Wno-unused-but-set-variable" # variable ‘X’ set but not used
+    )
+endif()
+string (REPLACE ";" " " LLVM_COMPILE_FLAGS "${LLVM_COMPILE_FLAGS}")
+
 add_library(llvm STATIC ${LLVM_LIST})
 set_target_properties(llvm PROPERTIES
     POSITION_INDEPENDENT_CODE 1
     INCLUDE_DIRECTORIES "${LLVM_INCLUDE_DIR}"
+    COMPILE_FLAGS "${LLVM_COMPILE_FLAGS}"
     COMPILE_DEFINITIONS "__STDC_CONSTANT_MACROS; __STDC_LIMIT_MACROS;"
     FOLDER "LLVM"
 )
@@ -1912,7 +1929,6 @@ set(OPENGL_INCLUDE_DIR
 )
 
 set(VULKAN_INCLUDE_DIR
-    ${VULKAN_DIR}
     ${COMMON_INCLUDE_DIR}
 )
 
@@ -2043,6 +2059,10 @@ file(GLOB_RECURSE VULKAN_LIST
     ${SOURCE_DIR}/Device/*.hpp
     ${SOURCE_DIR}/Pipeline/*.cpp
     ${SOURCE_DIR}/Pipeline/*.hpp
+    ${SOURCE_DIR}/WSI/VkSurfaceKHR.cpp
+    ${SOURCE_DIR}/WSI/VkSurfaceKHR.hpp
+    ${SOURCE_DIR}/WSI/VkSwapchainKHR.cpp
+    ${SOURCE_DIR}/WSI/VkSwapchainKHR.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/vulkan/*.h}
 )
 
@@ -2078,6 +2098,13 @@ elseif(LINUX)
     )
     list(APPEND OPENGL_COMPILER_LIST
         ${OPENGL_COMPILER_DIR}/ossource_posix.cpp
+    )
+
+    list(APPEND VULKAN_LIST
+        ${SOURCE_DIR}/WSI/libX11.cpp
+        ${SOURCE_DIR}/WSI/libX11.hpp
+        ${SOURCE_DIR}/WSI/XlibSurfaceKHR.cpp
+        ${SOURCE_DIR}/WSI/XlibSurfaceKHR.hpp
     )
 elseif(APPLE)
     list(APPEND SWIFTSHADER_LIST

@@ -145,9 +145,6 @@ namespace sw
 		PS ps;
 
 		int instanceID;
-
-		float pointSizeMin;
-		float pointSizeMax;
 		float lineWidth;
 
 		PixelProcessor::Stencil stencil[2];   // clockwise, counterclockwise
@@ -250,41 +247,16 @@ namespace sw
 		void *operator new(size_t size);
 		void operator delete(void * mem);
 
-		void draw(DrawType drawType, unsigned int indexOffset, unsigned int count, bool update = true);
+		void draw(DrawType drawType, unsigned int count, bool update = true);
 
 		void clear(void *value, VkFormat format, Surface *dest, const Rect &rect, unsigned int rgbaMask);
 		void blit(Surface *source, const SliceRectF &sRect, Surface *dest, const SliceRect &dRect, bool filter, bool isStencil = false, bool sRGBconversion = true);
 		void blit3D(Surface *source, Surface *dest);
 
 		void setContext(const sw::Context& context);
-		void setIndexBuffer(Resource *indexBuffer);
 
 		void setMultiSampleMask(unsigned int mask);
 		void setTransparencyAntialiasing(TransparencyAntialiasing transparencyAntialiasing);
-
-		void setTextureResource(unsigned int sampler, Resource *resource);
-		void setTextureLevel(unsigned int sampler, unsigned int face, unsigned int level, Surface *surface, TextureType type);
-
-		void setTextureFilter(SamplerType type, int sampler, FilterType textureFilter);
-		void setMipmapFilter(SamplerType type, int sampler, MipmapType mipmapFilter);
-		void setGatherEnable(SamplerType type, int sampler, bool enable);
-		void setAddressingModeU(SamplerType type, int sampler, AddressingMode addressingMode);
-		void setAddressingModeV(SamplerType type, int sampler, AddressingMode addressingMode);
-		void setAddressingModeW(SamplerType type, int sampler, AddressingMode addressingMode);
-		void setReadSRGB(SamplerType type, int sampler, bool sRGB);
-		void setMipmapLOD(SamplerType type, int sampler, float bias);
-		void setBorderColor(SamplerType type, int sampler, const Color<float> &borderColor);
-		void setMaxAnisotropy(SamplerType type, int sampler, float maxAnisotropy);
-		void setHighPrecisionFiltering(SamplerType type, int sampler, bool highPrecisionFiltering);
-		void setSwizzleR(SamplerType type, int sampler, SwizzleType swizzleR);
-		void setSwizzleG(SamplerType type, int sampler, SwizzleType swizzleG);
-		void setSwizzleB(SamplerType type, int sampler, SwizzleType swizzleB);
-		void setSwizzleA(SamplerType type, int sampler, SwizzleType swizzleA);
-		void setCompareFunc(SamplerType type, int sampler, CompareFunc compare);
-		void setBaseLevel(SamplerType type, int sampler, int baseLevel);
-		void setMaxLevel(SamplerType type, int sampler, int maxLevel);
-		void setMinLod(SamplerType type, int sampler, float minLod);
-		void setMaxLod(SamplerType type, int sampler, float maxLod);
 
 		void setLineWidth(float width);
 
@@ -335,7 +307,6 @@ namespace sw
 		bool setupLine(Primitive &primitive, Triangle &triangle, const DrawCall &draw);
 		bool setupPoint(Primitive &primitive, Triangle &triangle, const DrawCall &draw);
 
-		bool isReadWriteTexture(int sampler);
 		void updateConfiguration(bool initialUpdate = false);
 		void initializeThreads();
 		void terminateThreads();
@@ -426,12 +397,9 @@ namespace sw
 		int (Renderer::*setupPrimitives)(int batch, int count);
 		SetupProcessor::State setupState;
 
-		Resource *vertexStream[MAX_VERTEX_INPUTS];
-		Resource *indexBuffer;
-		Surface *renderTarget[RENDERTARGETS];
-		Surface *depthBuffer;
-		Surface *stencilBuffer;
-		Resource *texture[TOTAL_IMAGE_UNITS];
+		vk::ImageView *renderTarget[RENDERTARGETS];
+		vk::ImageView *depthBuffer;
+		vk::ImageView *stencilBuffer;
 
 		std::list<Query*> *queries;
 

@@ -29,7 +29,9 @@
 #include "System/Half.hpp"
 #include "System/Math.hpp"
 #include "System/Timer.hpp"
+#include "Vulkan/VkConfig.h"
 #include "Vulkan/VkDebug.hpp"
+#include "Vulkan/VkImageView.hpp"
 #include "Pipeline/SpirvShader.hpp"
 #include "Vertex.hpp"
 
@@ -209,7 +211,7 @@ namespace sw
 		sw::deallocate(mem);
 	}
 
-	void Renderer::draw(DrawType drawType, unsigned int indexOffset, unsigned int count, bool update)
+	void Renderer::draw(DrawType drawType, unsigned int count, bool update)
 	{
 		#ifndef NDEBUG
 			if(count < minPrimitives || count > maxPrimitives)
@@ -222,7 +224,7 @@ namespace sw
 
 		updateConfiguration();
 
-		int ms = context->getMultiSampleCount();
+		int ms = context->sampleCount;
 		unsigned int oldMultiSampleMask = context->multiSampleMask;
 		context->multiSampleMask = context->sampleMask & ((unsigned)0xFFFFFFFF >> (32 - ms));
 
@@ -313,48 +315,13 @@ namespace sw
 
 		for(int i = 0; i < MAX_VERTEX_INPUTS; i++)
 		{
-			draw->vertexStream[i] = context->input[i].resource;
 			data->input[i] = context->input[i].buffer;
 			data->stride[i] = context->input[i].stride;
-
-			if(draw->vertexStream[i])
-			{
-				draw->vertexStream[i]->lock(PUBLIC, PRIVATE);
-			}
 		}
 
 		if(context->indexBuffer)
 		{
-			data->indices = (unsigned char*)context->indexBuffer->lock(PUBLIC, PRIVATE) + indexOffset;
-		}
-
-		draw->indexBuffer = context->indexBuffer;
-
-		for(int sampler = 0; sampler < TOTAL_IMAGE_UNITS; sampler++)
-		{
-			draw->texture[sampler] = 0;
-		}
-
-		for(int sampler = 0; sampler < TEXTURE_IMAGE_UNITS; sampler++)
-		{
-			if(pixelState.sampler[sampler].textureType != TEXTURE_NULL)
-			{
-				draw->texture[sampler] = context->texture[sampler];
-				draw->texture[sampler]->lock(PUBLIC, isReadWriteTexture(sampler) ? MANAGED : PRIVATE);   // If the texure is both read and written, use the same read/write lock as render targets
-
-				data->mipmap[sampler] = context->sampler[sampler].getTextureData();
-			}
-		}
-
-		for(int sampler = 0; sampler < VERTEX_TEXTURE_IMAGE_UNITS; sampler++)
-		{
-			if(vertexState.sampler[sampler].textureType != TEXTURE_NULL)
-			{
-				draw->texture[TEXTURE_IMAGE_UNITS + sampler] = context->texture[TEXTURE_IMAGE_UNITS + sampler];
-				draw->texture[TEXTURE_IMAGE_UNITS + sampler]->lock(PUBLIC, PRIVATE);
-
-				data->mipmap[TEXTURE_IMAGE_UNITS + sampler] = context->sampler[TEXTURE_IMAGE_UNITS + sampler].getTextureData();
-			}
+			data->indices = context->indexBuffer;
 		}
 
 		if(context->vertexShader->hasBuiltinInput(spv::BuiltInInstanceId))
@@ -366,12 +333,6 @@ namespace sw
 		{
 			data->stencil[0] = stencil;
 			data->stencil[1] = stencilCCW;
-		}
-
-		if(setupState.isDrawPoint)
-		{
-			data->pointSizeMin = pointSizeMin;
-			data->pointSizeMax = pointSizeMax;
 		}
 
 		data->lineWidth = context->lineWidth;
@@ -457,10 +418,10 @@ namespace sw
 
 				if(draw->renderTarget[index])
 				{
-					unsigned int layer = context->renderTargetLayer[index];
-					data->colorBuffer[index] = (unsigned int*)context->renderTarget[index]->lockInternal(0, 0, layer, LOCK_READWRITE, MANAGED);
-					data->colorPitchB[index] = context->renderTarget[index]->getInternalPitchB();
-					data->colorSliceB[index] = context->renderTarget[index]->getInternalSliceB();
+					VkOffset3D offset = { 0, 0, static_cast<int32_t>(context->renderTargetLayer[index]) };
+					data->colorBuffer[index] = (unsigned int*)context->renderTarget[index]->getOffsetPointer(offset, VK_IMAGE_ASPECT_COLOR_BIT);
+					data->colorPitchB[index] = context->renderTarget[index]->rowPitchBytes(VK_IMAGE_ASPECT_COLOR_BIT);
+					data->colorSliceB[index] = context->renderTarget[index]->slicePitchBytes(VK_IMAGE_ASPECT_COLOR_BIT);
 				}
 			}
 
@@ -469,18 +430,18 @@ namespace sw
 
 			if(draw->depthBuffer)
 			{
-				unsigned int layer = context->depthBufferLayer;
-				data->depthBuffer = (float*)context->depthBuffer->lockInternal(0, 0, layer, LOCK_READWRITE, MANAGED);
-				data->depthPitchB = context->depthBuffer->getInternalPitchB();
-				data->depthSliceB = context->depthBuffer->getInternalSliceB();
+				VkOffset3D offset = { 0, 0, static_cast<int32_t>(context->depthBufferLayer) };
+				data->depthBuffer = (float*)context->depthBuffer->getOffsetPointer(offset, VK_IMAGE_ASPECT_DEPTH_BIT);
+				data->depthPitchB = context->depthBuffer->rowPitchBytes(VK_IMAGE_ASPECT_DEPTH_BIT);
+				data->depthSliceB = context->depthBuffer->slicePitchBytes(VK_IMAGE_ASPECT_DEPTH_BIT);
 			}
 
 			if(draw->stencilBuffer)
 			{
-				unsigned int layer = context->stencilBufferLayer;
-				data->stencilBuffer = (unsigned char*)context->stencilBuffer->lockStencil(0, 0, layer, MANAGED);
-				data->stencilPitchB = context->stencilBuffer->getStencilPitchB();
-				data->stencilSliceB = context->stencilBuffer->getStencilSliceB();
+				VkOffset3D offset = { 0, 0, static_cast<int32_t>(context->stencilBufferLayer) };
+				data->stencilBuffer = (unsigned char*)context->stencilBuffer->getOffsetPointer(offset, VK_IMAGE_ASPECT_STENCIL_BIT);
+				data->stencilPitchB = context->stencilBuffer->rowPitchBytes(VK_IMAGE_ASPECT_STENCIL_BIT);
+				data->stencilSliceB = context->stencilBuffer->slicePitchBytes(VK_IMAGE_ASPECT_STENCIL_BIT);
 			}
 		}
 
@@ -840,45 +801,6 @@ namespace sw
 
 					delete draw.queries;
 					draw.queries = 0;
-				}
-
-				for(int i = 0; i < RENDERTARGETS; i++)
-				{
-					if(draw.renderTarget[i])
-					{
-						draw.renderTarget[i]->unlockInternal();
-					}
-				}
-
-				if(draw.depthBuffer)
-				{
-					draw.depthBuffer->unlockInternal();
-				}
-
-				if(draw.stencilBuffer)
-				{
-					draw.stencilBuffer->unlockStencil();
-				}
-
-				for(int i = 0; i < TOTAL_IMAGE_UNITS; i++)
-				{
-					if(draw.texture[i])
-					{
-						draw.texture[i]->unlock();
-					}
-				}
-
-				for(int i = 0; i < MAX_VERTEX_INPUTS; i++)
-				{
-					if(draw.vertexStream[i])
-					{
-						draw.vertexStream[i]->unlock();
-					}
-				}
-
-				if(draw.indexBuffer)
-				{
-					draw.indexBuffer->unlock();
 				}
 
 				draw.vertexRoutine->unbind();
@@ -1489,7 +1411,7 @@ namespace sw
 
 		float pSize = v.builtins.pointSize;
 
-		pSize = clamp(pSize, data.pointSizeMin, data.pointSizeMax);
+		pSize = clamp(pSize, 1.0f, static_cast<float>(vk::MAX_POINT_SIZE));
 
 		float4 P[4];
 		int C[4];
@@ -1614,11 +1536,6 @@ namespace sw
 		}
 	}
 
-	void Renderer::setIndexBuffer(Resource *indexBuffer)
-	{
-		context->indexBuffer = indexBuffer;
-	}
-
 	void Renderer::setMultiSampleMask(unsigned int mask)
 	{
 		context->sampleMask = mask;
@@ -1627,278 +1544,6 @@ namespace sw
 	void Renderer::setTransparencyAntialiasing(TransparencyAntialiasing transparencyAntialiasing)
 	{
 		sw::transparencyAntialiasing = transparencyAntialiasing;
-	}
-
-	bool Renderer::isReadWriteTexture(int sampler)
-	{
-		for(int index = 0; index < RENDERTARGETS; index++)
-		{
-			if(context->renderTarget[index] && context->texture[sampler] == context->renderTarget[index]->getResource())
-			{
-				return true;
-			}
-		}
-
-		if(context->depthBuffer && context->texture[sampler] == context->depthBuffer->getResource())
-		{
-			return true;
-		}
-
-		return false;
-	}
-
-	void Renderer::setTextureResource(unsigned int sampler, Resource *resource)
-	{
-		ASSERT(sampler < TOTAL_IMAGE_UNITS);
-
-		context->texture[sampler] = resource;
-	}
-
-	void Renderer::setTextureLevel(unsigned int sampler, unsigned int face, unsigned int level, Surface *surface, TextureType type)
-	{
-		ASSERT(sampler < TOTAL_IMAGE_UNITS && face < 6 && level < MIPMAP_LEVELS);
-
-		context->sampler[sampler].setTextureLevel(face, level, surface, type);
-	}
-
-	void Renderer::setTextureFilter(SamplerType type, int sampler, FilterType textureFilter)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setTextureFilter(sampler, textureFilter);
-		}
-		else
-		{
-			VertexProcessor::setTextureFilter(sampler, textureFilter);
-		}
-	}
-
-	void Renderer::setMipmapFilter(SamplerType type, int sampler, MipmapType mipmapFilter)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setMipmapFilter(sampler, mipmapFilter);
-		}
-		else
-		{
-			VertexProcessor::setMipmapFilter(sampler, mipmapFilter);
-		}
-	}
-
-	void Renderer::setGatherEnable(SamplerType type, int sampler, bool enable)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setGatherEnable(sampler, enable);
-		}
-		else
-		{
-			VertexProcessor::setGatherEnable(sampler, enable);
-		}
-	}
-
-	void Renderer::setAddressingModeU(SamplerType type, int sampler, AddressingMode addressMode)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setAddressingModeU(sampler, addressMode);
-		}
-		else
-		{
-			VertexProcessor::setAddressingModeU(sampler, addressMode);
-		}
-	}
-
-	void Renderer::setAddressingModeV(SamplerType type, int sampler, AddressingMode addressMode)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setAddressingModeV(sampler, addressMode);
-		}
-		else
-		{
-			VertexProcessor::setAddressingModeV(sampler, addressMode);
-		}
-	}
-
-	void Renderer::setAddressingModeW(SamplerType type, int sampler, AddressingMode addressMode)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setAddressingModeW(sampler, addressMode);
-		}
-		else
-		{
-			VertexProcessor::setAddressingModeW(sampler, addressMode);
-		}
-	}
-
-	void Renderer::setReadSRGB(SamplerType type, int sampler, bool sRGB)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setReadSRGB(sampler, sRGB);
-		}
-		else
-		{
-			VertexProcessor::setReadSRGB(sampler, sRGB);
-		}
-	}
-
-	void Renderer::setMipmapLOD(SamplerType type, int sampler, float bias)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setMipmapLOD(sampler, bias);
-		}
-		else
-		{
-			VertexProcessor::setMipmapLOD(sampler, bias);
-		}
-	}
-
-	void Renderer::setBorderColor(SamplerType type, int sampler, const Color<float> &borderColor)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setBorderColor(sampler, borderColor);
-		}
-		else
-		{
-			VertexProcessor::setBorderColor(sampler, borderColor);
-		}
-	}
-
-	void Renderer::setMaxAnisotropy(SamplerType type, int sampler, float maxAnisotropy)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setMaxAnisotropy(sampler, maxAnisotropy);
-		}
-		else
-		{
-			VertexProcessor::setMaxAnisotropy(sampler, maxAnisotropy);
-		}
-	}
-
-	void Renderer::setHighPrecisionFiltering(SamplerType type, int sampler, bool highPrecisionFiltering)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setHighPrecisionFiltering(sampler, highPrecisionFiltering);
-		}
-		else
-		{
-			VertexProcessor::setHighPrecisionFiltering(sampler, highPrecisionFiltering);
-		}
-	}
-
-	void Renderer::setSwizzleR(SamplerType type, int sampler, SwizzleType swizzleR)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setSwizzleR(sampler, swizzleR);
-		}
-		else
-		{
-			VertexProcessor::setSwizzleR(sampler, swizzleR);
-		}
-	}
-
-	void Renderer::setSwizzleG(SamplerType type, int sampler, SwizzleType swizzleG)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setSwizzleG(sampler, swizzleG);
-		}
-		else
-		{
-			VertexProcessor::setSwizzleG(sampler, swizzleG);
-		}
-	}
-
-	void Renderer::setSwizzleB(SamplerType type, int sampler, SwizzleType swizzleB)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setSwizzleB(sampler, swizzleB);
-		}
-		else
-		{
-			VertexProcessor::setSwizzleB(sampler, swizzleB);
-		}
-	}
-
-	void Renderer::setSwizzleA(SamplerType type, int sampler, SwizzleType swizzleA)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setSwizzleA(sampler, swizzleA);
-		}
-		else
-		{
-			VertexProcessor::setSwizzleA(sampler, swizzleA);
-		}
-	}
-
-	void Renderer::setCompareFunc(SamplerType type, int sampler, CompareFunc compFunc)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setCompareFunc(sampler, compFunc);
-		}
-		else
-		{
-			VertexProcessor::setCompareFunc(sampler, compFunc);
-		}
-	}
-
-	void Renderer::setBaseLevel(SamplerType type, int sampler, int baseLevel)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setBaseLevel(sampler, baseLevel);
-		}
-		else
-		{
-			VertexProcessor::setBaseLevel(sampler, baseLevel);
-		}
-	}
-
-	void Renderer::setMaxLevel(SamplerType type, int sampler, int maxLevel)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setMaxLevel(sampler, maxLevel);
-		}
-		else
-		{
-			VertexProcessor::setMaxLevel(sampler, maxLevel);
-		}
-	}
-
-	void Renderer::setMinLod(SamplerType type, int sampler, float minLod)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setMinLod(sampler, minLod);
-		}
-		else
-		{
-			VertexProcessor::setMinLod(sampler, minLod);
-		}
-	}
-
-	void Renderer::setMaxLod(SamplerType type, int sampler, float maxLod)
-	{
-		if(type == SAMPLER_PIXEL)
-		{
-			PixelProcessor::setMaxLod(sampler, maxLod);
-		}
-		else
-		{
-			VertexProcessor::setMaxLod(sampler, maxLod);
-		}
 	}
 
 	void Renderer::setLineWidth(float width)

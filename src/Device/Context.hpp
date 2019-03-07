@@ -21,10 +21,15 @@
 #include "Vertex.hpp"
 #include "System/Types.hpp"
 
+namespace vk
+{
+	class ImageView;
+	class PipelineLayout;
+} // namespace vk
+
 namespace sw
 {
 	class Sampler;
-	class Surface;
 	class PixelShader;
 	class VertexShader;
 	class SpirvShader;
@@ -133,9 +138,6 @@ namespace sw
 		bool setColorWriteMask(int index, int colorWriteMask);
 		bool setWriteSRGB(bool sRGB);
 
-		bool setColorLogicOpEnabled(bool colorLogicOpEnabled);
-		bool setLogicalOperation(VkLogicOp logicalOperation);
-
 		bool depthWriteActive();
 		bool alphaTestActive();
 		bool depthBufferActive();
@@ -153,8 +155,6 @@ namespace sw
 		VkBlendOp blendOperationAlpha();
 
 		VkLogicOp colorLogicOp();
-
-		int getMultiSampleCount() const;
 
 		DrawType drawType;
 
@@ -184,23 +184,22 @@ namespace sw
 		float depthBias;
 		float slopeDepthBias;
 
-		Sampler sampler[TOTAL_IMAGE_UNITS];
-
 		VkFormat renderTargetInternalFormat(int index);
-		int colorWriteActive();
+		bool colorWriteActive();
 		int colorWriteActive(int index);
 		bool colorUsed();
 
-		Resource *texture[TOTAL_IMAGE_UNITS];
 		Stream input[MAX_VERTEX_INPUTS];
-		Resource *indexBuffer;
+		void *indexBuffer;
 
-		Surface *renderTarget[RENDERTARGETS];
+		vk::ImageView *renderTarget[RENDERTARGETS];
 		unsigned int renderTargetLayer[RENDERTARGETS];
-		Surface *depthBuffer;
+		vk::ImageView *depthBuffer;
 		unsigned int depthBufferLayer;
-		Surface *stencilBuffer;
+		vk::ImageView *stencilBuffer;
 		unsigned int stencilBufferLayer;
+
+		vk::PipelineLayout const *pipelineLayout;
 
 		// Shaders
 		const SpirvShader *pixelShader;
@@ -233,9 +232,7 @@ namespace sw
 		bool writeSRGB;
 		unsigned int sampleMask;
 		unsigned int multiSampleMask;
-
-		bool colorLogicOpEnabled;
-		VkLogicOp logicalOperation;
+		int sampleCount;
 	};
 }
 
