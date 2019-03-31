@@ -15,10 +15,8 @@
 #include "Renderer.hpp"
 
 #include "Clipper.hpp"
-#include "Surface.hpp"
 #include "Primitive.hpp"
 #include "Polygon.hpp"
-#include "WSI/FrameBuffer.hpp"
 #include "Device/SwiftConfig.hpp"
 #include "Reactor/Reactor.hpp"
 #include "Pipeline/Constants.hpp"
@@ -48,12 +46,9 @@ namespace sw
 {
 	extern bool booleanFaceRegister;
 	extern bool fullPixelPositionRegister;
-	extern bool leadingVertexFirst;         // Flat shading uses first vertex, else last
-	extern bool secondaryColor;             // Specular lighting is applied after texturing
 	extern bool colorsDefaultToZero;
 
 	extern bool forceWindowed;
-	extern bool complementaryDepthBuffer;
 	extern bool postBlendSRGB;
 	extern bool exactColorRounding;
 	extern TransparencyAntialiasing transparencyAntialiasing;
@@ -82,8 +77,6 @@ namespace sw
 		{
 			sw::booleanFaceRegister = conventions.booleanFaceRegister;
 			sw::fullPixelPositionRegister = conventions.fullPixelPositionRegister;
-			sw::leadingVertexFirst = conventions.leadingVertexFirst;
-			sw::secondaryColor = conventions.secondaryColor;
 			sw::colorsDefaultToZero = conventions.colorsDefaultToZero;
 			sw::exactColorRounding = exactColorRounding;
 			initialized = true;
@@ -313,10 +306,15 @@ namespace sw
 		draw->setupPrimitives = setupPrimitives;
 		draw->setupState = setupState;
 
+		for(int i = 0; i < vk::MAX_BOUND_DESCRIPTOR_SETS; i++)
+		{
+			data->descriptorSets[i] = context->descriptorSets[i];
+		}
+
 		for(int i = 0; i < MAX_VERTEX_INPUTS; i++)
 		{
 			data->input[i] = context->input[i].buffer;
-			data->stride[i] = context->input[i].stride;
+			data->stride[i] = context->input[i].vertexStride;
 		}
 
 		if(context->indexBuffer)
@@ -324,15 +322,15 @@ namespace sw
 			data->indices = context->indexBuffer;
 		}
 
-		if(context->vertexShader->hasBuiltinInput(spv::BuiltInInstanceId))
+		if(context->vertexShader->hasBuiltinInput(spv::BuiltInInstanceIndex))
 		{
 			data->instanceID = context->instanceID;
 		}
 
 		if(pixelState.stencilActive)
 		{
-			data->stencil[0] = stencil;
-			data->stencil[1] = stencilCCW;
+			data->stencil[0].set(context->frontStencil.reference, context->frontStencil.compareMask, context->frontStencil.writeMask);
+			data->stencil[1].set(context->backStencil.reference, context->backStencil.compareMask, context->backStencil.writeMask);
 		}
 
 		data->lineWidth = context->lineWidth;
@@ -392,12 +390,6 @@ namespace sw
 				N += context->depthBias;
 			}
 
-			if(complementaryDepthBuffer)
-			{
-				Z = -Z;
-				N = 1 - N;
-			}
-
 			data->Wx16 = replicate(W * 16);
 			data->Hx16 = replicate(H * 16);
 			data->X0x16 = replicate(X0 * 16 - 8);
@@ -447,10 +439,15 @@ namespace sw
 
 		// Scissor
 		{
-			data->scissorX0 = scissor.x0;
-			data->scissorX1 = scissor.x1;
-			data->scissorY0 = scissor.y0;
-			data->scissorY1 = scissor.y1;
+			data->scissorX0 = scissor.offset.x;
+			data->scissorX1 = scissor.offset.x + scissor.extent.width;
+			data->scissorY0 = scissor.offset.y;
+			data->scissorY1 = scissor.offset.y + scissor.extent.height;
+		}
+
+		// Push constants
+		{
+			data->pushConstants = context->pushConstants;
 		}
 
 		draw->primitive = 0;
@@ -483,21 +480,6 @@ namespace sw
 				resume[0]->signal();
 			}
 		}
-	}
-
-	void Renderer::clear(void *value, VkFormat format, Surface *dest, const Rect &clearRect, unsigned int rgbaMask)
-	{
-		blitter->clear(value, format, dest, clearRect, rgbaMask);
-	}
-
-	void Renderer::blit(Surface *source, const SliceRectF &sRect, Surface *dest, const SliceRect &dRect, bool filter, bool isStencil, bool sRGBconversion)
-	{
-		blitter->blit(source, sRect, dest, dRect, {filter, isStencil, sRGBconversion});
-	}
-
-	void Renderer::blit3D(Surface *source, Surface *dest)
-	{
-		blitter->blit3D(source, dest);
 	}
 
 	void Renderer::threadFunction(void *parameters)
@@ -900,18 +882,9 @@ namespace sw
 
 				for(unsigned int i = 0; i < triangleCount; i++)
 				{
-					if(leadingVertexFirst)
-					{
-						batch[i][0] = index + 0;
-						batch[i][1] = index + (index & 1) + 1;
-						batch[i][2] = index + (~index & 1) + 1;
-					}
-					else
-					{
-						batch[i][0] = index + (index & 1);
-						batch[i][1] = index + (~index & 1);
-						batch[i][2] = index + 2;
-					}
+					batch[i][0] = index + 0;
+					batch[i][1] = index + (index & 1) + 1;
+					batch[i][2] = index + (~index & 1) + 1;
 
 					index += 1;
 				}
@@ -923,18 +896,9 @@ namespace sw
 
 				for(unsigned int i = 0; i < triangleCount; i++)
 				{
-					if(leadingVertexFirst)
-					{
-						batch[i][0] = index + 1;
-						batch[i][1] = index + 2;
-						batch[i][2] = 0;
-					}
-					else
-					{
-						batch[i][0] = 0;
-						batch[i][1] = index + 1;
-						batch[i][2] = index + 2;
-					}
+					batch[i][0] = index + 1;
+					batch[i][1] = index + 2;
+					batch[i][2] = 0;
 
 					index += 1;
 				}
@@ -1586,6 +1550,19 @@ namespace sw
 		queries.remove(query);
 	}
 
+	void Renderer::advanceInstanceAttributes()
+	{
+		for(uint32_t i = 0; i < vk::MAX_VERTEX_INPUT_BINDINGS; i++)
+		{
+			auto &attrib = context->input[i];
+			if (attrib.count && attrib.instanceStride)
+			{
+				// Under the casts: attrib.buffer += attrib.instanceStride
+				attrib.buffer = (void const *)((uintptr_t)attrib.buffer + attrib.instanceStride);
+			}
+		}
+	}
+
 	#if PERF_HUD
 		int Renderer::getThreadCount()
 		{
@@ -1628,7 +1605,7 @@ namespace sw
 		this->viewport = viewport;
 	}
 
-	void Renderer::setScissor(const Rect &scissor)
+	void Renderer::setScissor(const VkRect2D &scissor)
 	{
 		this->scissor = scissor;
 	}
@@ -1735,7 +1712,6 @@ namespace sw
 			}
 
 			forceWindowed = configuration.forceWindowed;
-			complementaryDepthBuffer = configuration.complementaryDepthBuffer;
 			postBlendSRGB = configuration.postBlendSRGB;
 			exactColorRounding = configuration.exactColorRounding;
 			forceClearRegisters = configuration.forceClearRegisters;

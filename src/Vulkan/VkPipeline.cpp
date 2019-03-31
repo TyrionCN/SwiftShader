@@ -15,9 +15,12 @@
 #include "VkPipeline.hpp"
 #include "VkPipelineLayout.hpp"
 #include "VkShaderModule.hpp"
+#include "Pipeline/ComputeProgram.hpp"
 #include "Pipeline/SpirvShader.hpp"
 
 #include "spirv-tools/optimizer.hpp"
+
+#include <iostream>
 
 namespace
 {
@@ -50,15 +53,10 @@ sw::DrawType Convert(VkPrimitiveTopology topology)
 		ASSERT(false);
 		break;
 	default:
-		UNIMPLEMENTED();
+		UNIMPLEMENTED("topology");
 	}
 
 	return sw::DRAW_TRIANGLELIST;
-}
-
-sw::Rect Convert(const VkRect2D& rect)
-{
-	return sw::Rect(rect.offset.x, rect.offset.y, rect.offset.x + rect.extent.width, rect.offset.y + rect.extent.height);
 }
 
 sw::StreamType getStreamType(VkFormat format)
@@ -121,7 +119,7 @@ sw::StreamType getStreamType(VkFormat format)
 	case VK_FORMAT_R32G32B32A32_SFLOAT:
 		return sw::STREAMTYPE_FLOAT;
 	default:
-		UNIMPLEMENTED();
+		UNIMPLEMENTED("format");
 	}
 
 	return sw::STREAMTYPE_BYTE;
@@ -181,7 +179,7 @@ uint32_t getNumberOfChannels(VkFormat format)
 	case VK_FORMAT_R32G32B32A32_SFLOAT:
 		return 4;
 	default:
-		UNIMPLEMENTED();
+		UNIMPLEMENTED("format");
 	}
 
 	return 0;
@@ -196,22 +194,21 @@ std::vector<uint32_t> preprocessSpirv(
 	spvtools::Optimizer opt{SPV_ENV_VULKAN_1_1};
 
 	opt.SetMessageConsumer([](spv_message_level_t level, const char*, const spv_position_t& p, const char* m) {
+		const char* category = "";
 		switch (level)
 		{
-		case SPV_MSG_FATAL:
-		case SPV_MSG_INTERNAL_ERROR:
-		case SPV_MSG_ERROR:
-			ERR("%d:%d %s", p.line, p.column, m);
-			break;
-		case SPV_MSG_WARNING:
-		case SPV_MSG_INFO:
-		case SPV_MSG_DEBUG:
-			TRACE("%d:%d %s", p.line, p.column, m);
-			break;
+		case SPV_MSG_FATAL:          category = "FATAL";          break;
+		case SPV_MSG_INTERNAL_ERROR: category = "INTERNAL_ERROR"; break;
+		case SPV_MSG_ERROR:          category = "ERROR";          break;
+		case SPV_MSG_WARNING:        category = "WARNING";        break;
+		case SPV_MSG_INFO:           category = "INFO";           break;
+		case SPV_MSG_DEBUG:          category = "DEBUG";          break;
 		}
+		vk::trace("%s: %d:%d %s", category, p.line, p.column, m);
 	});
 
 	opt.RegisterPass(spvtools::CreateInlineExhaustivePass());
+	opt.RegisterPass(spvtools::CreateEliminateDeadFunctionsPass());
 
 	// If the pipeline uses specialization, apply the specializations before freezing
 	if (specializationInfo)
@@ -233,6 +230,17 @@ std::vector<uint32_t> preprocessSpirv(
 
 	std::vector<uint32_t> optimized;
 	opt.Run(code.data(), code.size(), &optimized);
+
+	if (false) {
+		spvtools::SpirvTools core(SPV_ENV_VULKAN_1_1);
+		std::string preOpt;
+		core.Disassemble(code, &preOpt, SPV_BINARY_TO_TEXT_OPTION_NONE);
+		std::string postOpt;
+		core.Disassemble(optimized, &postOpt, SPV_BINARY_TO_TEXT_OPTION_NONE);
+		std::cout << "PRE-OPT: " << preOpt << std::endl
+		 		<< "POST-OPT: " << postOpt << std::endl;
+	}
+
 	return optimized;
 }
 
@@ -246,41 +254,18 @@ Pipeline::Pipeline(PipelineLayout const *layout) : layout(layout) {}
 GraphicsPipeline::GraphicsPipeline(const VkGraphicsPipelineCreateInfo* pCreateInfo, void* mem)
 	: Pipeline(Cast(pCreateInfo->layout))
 {
-	if((pCreateInfo->flags != 0) ||
+	if(((pCreateInfo->flags & ~(VK_PIPELINE_CREATE_DERIVATIVE_BIT | VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT)) != 0) ||
 	   (pCreateInfo->stageCount != 2) ||
 	   (pCreateInfo->pTessellationState != nullptr) ||
-	   (pCreateInfo->pDynamicState != nullptr) ||
-	   (pCreateInfo->subpass != 0) ||
-	   (pCreateInfo->basePipelineHandle != VK_NULL_HANDLE) ||
-	   (pCreateInfo->basePipelineIndex != 0))
+	   (pCreateInfo->pDynamicState != nullptr))
 	{
-		UNIMPLEMENTED();
-	}
-
-	const VkPipelineShaderStageCreateInfo& vertexStage = pCreateInfo->pStages[0];
-	if((vertexStage.stage != VK_SHADER_STAGE_VERTEX_BIT) ||
-	   (vertexStage.flags != 0) ||
-	   !((vertexStage.pSpecializationInfo == nullptr) ||
-	     ((vertexStage.pSpecializationInfo->mapEntryCount == 0) &&
-	      (vertexStage.pSpecializationInfo->dataSize == 0))))
-	{
-		UNIMPLEMENTED();
-	}
-
-	const VkPipelineShaderStageCreateInfo& fragmentStage = pCreateInfo->pStages[1];
-	if((fragmentStage.stage != VK_SHADER_STAGE_FRAGMENT_BIT) ||
-	   (fragmentStage.flags != 0) ||
-	   !((fragmentStage.pSpecializationInfo == nullptr) ||
-	     ((fragmentStage.pSpecializationInfo->mapEntryCount == 0) &&
-	      (fragmentStage.pSpecializationInfo->dataSize == 0))))
-	{
-		UNIMPLEMENTED();
+		UNIMPLEMENTED("pCreateInfo settings");
 	}
 
 	const VkPipelineVertexInputStateCreateInfo* vertexInputState = pCreateInfo->pVertexInputState;
 	if(vertexInputState->flags != 0)
 	{
-		UNIMPLEMENTED();
+		UNIMPLEMENTED("vertexInputState->flags");
 	}
 
 	// Context must always have a PipelineLayout set.
@@ -288,15 +273,13 @@ GraphicsPipeline::GraphicsPipeline(const VkGraphicsPipelineCreateInfo* pCreateIn
 
 	// Temporary in-binding-order representation of buffer strides, to be consumed below
 	// when considering attributes. TODO: unfuse buffers from attributes in backend, is old GL model.
-	uint32_t bufferStrides[MAX_VERTEX_INPUT_BINDINGS];
+	uint32_t vertexStrides[MAX_VERTEX_INPUT_BINDINGS];
+	uint32_t instanceStrides[MAX_VERTEX_INPUT_BINDINGS];
 	for(uint32_t i = 0; i < vertexInputState->vertexBindingDescriptionCount; i++)
 	{
 		auto const & desc = vertexInputState->pVertexBindingDescriptions[i];
-		bufferStrides[desc.binding] = desc.stride;
-		if(desc.inputRate != VK_VERTEX_INPUT_RATE_VERTEX)
-		{
-			UNIMPLEMENTED();
-		}
+		vertexStrides[desc.binding] = desc.inputRate == VK_VERTEX_INPUT_RATE_VERTEX ? desc.stride : 0;
+		instanceStrides[desc.binding] = desc.inputRate == VK_VERTEX_INPUT_RATE_INSTANCE ? desc.stride : 0;
 	}
 
 	for(uint32_t i = 0; i < vertexInputState->vertexAttributeDescriptionCount; i++)
@@ -305,17 +288,18 @@ GraphicsPipeline::GraphicsPipeline(const VkGraphicsPipelineCreateInfo* pCreateIn
 		sw::Stream& input = context.input[desc.location];
 		input.count = getNumberOfChannels(desc.format);
 		input.type = getStreamType(desc.format);
-		input.normalized = !sw::Surface::isNonNormalizedInteger(desc.format);
+		input.normalized = !vk::Format(desc.format).isNonNormalizedInteger();
 		input.offset = desc.offset;
 		input.binding = desc.binding;
-		input.stride = bufferStrides[desc.binding];
+		input.vertexStride = vertexStrides[desc.binding];
+		input.instanceStride = instanceStrides[desc.binding];
 	}
 
 	const VkPipelineInputAssemblyStateCreateInfo* assemblyState = pCreateInfo->pInputAssemblyState;
 	if((assemblyState->flags != 0) ||
 	   (assemblyState->primitiveRestartEnable != 0))
 	{
-		UNIMPLEMENTED();
+		UNIMPLEMENTED("pCreateInfo->pInputAssemblyState settings");
 	}
 
 	context.drawType = Convert(assemblyState->topology);
@@ -327,10 +311,10 @@ GraphicsPipeline::GraphicsPipeline(const VkGraphicsPipelineCreateInfo* pCreateIn
 			(viewportState->viewportCount != 1) ||
 			(viewportState->scissorCount != 1))
 		{
-			UNIMPLEMENTED();
+			UNIMPLEMENTED("pCreateInfo->pViewportState settings");
 		}
 
-		scissor = Convert(viewportState->pScissors[0]);
+		scissor = viewportState->pScissors[0];
 		viewport = viewportState->pViewports[0];
 	}
 
@@ -339,7 +323,7 @@ GraphicsPipeline::GraphicsPipeline(const VkGraphicsPipelineCreateInfo* pCreateIn
 	   (rasterizationState->depthClampEnable != 0) ||
 	   (rasterizationState->polygonMode != VK_POLYGON_MODE_FILL))
 	{
-		UNIMPLEMENTED();
+		UNIMPLEMENTED("pCreateInfo->pRasterizationState settings");
 	}
 
 	context.rasterizerDiscard = rasterizationState->rasterizerDiscardEnable;
@@ -362,14 +346,15 @@ GraphicsPipeline::GraphicsPipeline(const VkGraphicsPipelineCreateInfo* pCreateIn
 			UNIMPLEMENTED("Unsupported sample count");
 		}
 
+		if (multisampleState->pSampleMask)
+			context.sampleMask = multisampleState->pSampleMask[0];
+
 		if((multisampleState->flags != 0) ||
 			(multisampleState->sampleShadingEnable != 0) ||
-			!((multisampleState->pSampleMask == nullptr) ||
-			(*(multisampleState->pSampleMask) == 0xFFFFFFFFu)) ||
 				(multisampleState->alphaToCoverageEnable != 0) ||
 			(multisampleState->alphaToOneEnable != 0))
 		{
-			UNIMPLEMENTED();
+			UNIMPLEMENTED("multisampleState");
 		}
 	}
 	else
@@ -381,11 +366,9 @@ GraphicsPipeline::GraphicsPipeline(const VkGraphicsPipelineCreateInfo* pCreateIn
 	if(depthStencilState)
 	{
 		if((depthStencilState->flags != 0) ||
-		   (depthStencilState->depthBoundsTestEnable != 0) ||
-		   (depthStencilState->minDepthBounds != 0.0f) ||
-		   (depthStencilState->maxDepthBounds != 1.0f))
+		   (depthStencilState->depthBoundsTestEnable != 0))
 		{
-			UNIMPLEMENTED();
+			UNIMPLEMENTED("depthStencilState");
 		}
 
 		context.depthBufferEnable = depthStencilState->depthTestEnable;
@@ -395,21 +378,8 @@ GraphicsPipeline::GraphicsPipeline(const VkGraphicsPipelineCreateInfo* pCreateIn
 		context.stencilEnable = context.twoSidedStencil = depthStencilState->stencilTestEnable;
 		if(context.stencilEnable)
 		{
-			context.stencilMask = depthStencilState->front.compareMask;
-			context.stencilCompareMode = depthStencilState->front.compareOp;
-			context.stencilZFailOperation = depthStencilState->front.depthFailOp;
-			context.stencilFailOperation = depthStencilState->front.failOp;
-			context.stencilPassOperation = depthStencilState->front.passOp;
-			context.stencilReference = depthStencilState->front.reference;
-			context.stencilWriteMask = depthStencilState->front.writeMask;
-
-			context.stencilMaskCCW = depthStencilState->back.compareMask;
-			context.stencilCompareModeCCW = depthStencilState->back.compareOp;
-			context.stencilZFailOperationCCW = depthStencilState->back.depthFailOp;
-			context.stencilFailOperationCCW = depthStencilState->back.failOp;
-			context.stencilPassOperationCCW = depthStencilState->back.passOp;
-			context.stencilReferenceCCW = depthStencilState->back.reference;
-			context.stencilWriteMaskCCW = depthStencilState->back.writeMask;
+			context.frontStencil = depthStencilState->front;
+			context.backStencil = depthStencilState->back;
 		}
 	}
 
@@ -420,7 +390,7 @@ GraphicsPipeline::GraphicsPipeline(const VkGraphicsPipelineCreateInfo* pCreateIn
 		   ((colorBlendState->logicOpEnable != 0) &&
 			(colorBlendState->attachmentCount > 1)))
 		{
-			UNIMPLEMENTED();
+			UNIMPLEMENTED("colorBlendState");
 		}
 
 		blendConstants.r = colorBlendState->blendConstants[0];
@@ -433,7 +403,7 @@ GraphicsPipeline::GraphicsPipeline(const VkGraphicsPipelineCreateInfo* pCreateIn
 			const VkPipelineColorBlendAttachmentState& attachment = colorBlendState->pAttachments[0];
 			if(attachment.colorWriteMask != (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT))
 			{
-				UNIMPLEMENTED();
+				UNIMPLEMENTED("colorWriteMask");
 			}
 
 			context.alphaBlendEnable = attachment.blendEnable;
@@ -465,8 +435,12 @@ void GraphicsPipeline::compileShaders(const VkAllocationCallbacks* pAllocator, c
 {
 	for (auto pStage = pCreateInfo->pStages; pStage != pCreateInfo->pStages + pCreateInfo->stageCount; pStage++)
 	{
-		auto module = Cast(pStage->module);
+		if (pStage->flags != 0)
+		{
+			UNIMPLEMENTED("pStage->flags");
+		}
 
+		auto module = Cast(pStage->module);
 		auto code = preprocessSpirv(module->getCode(), pStage->pSpecializationInfo);
 
 		// TODO: also pass in any pipeline state which will affect shader compilation
@@ -505,7 +479,7 @@ uint32_t GraphicsPipeline::computePrimitiveCount(uint32_t vertexCount) const
 	case sw::DRAW_TRIANGLEFAN:
 		return vertexCount - 2;
 	default:
-		UNIMPLEMENTED();
+		UNIMPLEMENTED("drawType");
 	}
 
 	return 0;
@@ -516,7 +490,7 @@ const sw::Context& GraphicsPipeline::getContext() const
 	return context;
 }
 
-const sw::Rect& GraphicsPipeline::getScissor() const
+const VkRect2D& GraphicsPipeline::getScissor() const
 {
 	return scissor;
 }
@@ -538,11 +512,42 @@ ComputePipeline::ComputePipeline(const VkComputePipelineCreateInfo* pCreateInfo,
 
 void ComputePipeline::destroyPipeline(const VkAllocationCallbacks* pAllocator)
 {
+	delete shader;
 }
 
 size_t ComputePipeline::ComputeRequiredAllocationSize(const VkComputePipelineCreateInfo* pCreateInfo)
 {
 	return 0;
+}
+
+void ComputePipeline::compileShaders(const VkAllocationCallbacks* pAllocator, const VkComputePipelineCreateInfo* pCreateInfo)
+{
+	auto module = Cast(pCreateInfo->stage.module);
+
+	auto code = preprocessSpirv(module->getCode(), pCreateInfo->stage.pSpecializationInfo);
+
+	ASSERT_OR_RETURN(code.size() > 0);
+
+	ASSERT(shader == nullptr);
+
+	// FIXME (b/119409619): use allocator.
+	shader = new sw::SpirvShader(code);
+
+	sw::ComputeProgram program(shader, layout);
+
+	program.generate();
+
+	// TODO(bclayton): Cache program
+	routine = program("ComputeRoutine");
+}
+
+void ComputePipeline::run(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ,
+	size_t numDescriptorSets, VkDescriptorSet *descriptorSets, sw::PushConstantStorage const &pushConstants)
+{
+	ASSERT_OR_RETURN(routine != nullptr);
+	sw::ComputeProgram::run(
+		routine, reinterpret_cast<void**>(descriptorSets), pushConstants,
+		groupCountX, groupCountY, groupCountZ);
 }
 
 } // namespace vk

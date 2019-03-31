@@ -31,7 +31,10 @@ namespace sw
 	{
 		enableIndex = 0;
 
-		spirvShader->emit(&routine);
+		routine.pushConstants = data + OFFSET(DrawData, pushConstants);
+
+		auto activeLaneMask = SIMD::Int(0xFFFFFFFF); // TODO: Control this.
+		spirvShader->emit(&routine, activeLaneMask);
 		spirvShader->emitEpilog(&routine);
 
 		for(int i = 0; i < RENDERTARGETS; i++)

@@ -16,6 +16,7 @@
 #define VK_IMAGE_VIEW_HPP_
 
 #include "VkDebug.hpp"
+#include "VkFormat.h"
 #include "VkObject.hpp"
 #include "VkImage.hpp"
 
@@ -33,8 +34,9 @@ public:
 
 	void clear(const VkClearValue& clearValues, VkImageAspectFlags aspectMask, const VkRect2D& renderArea);
 	void clear(const VkClearValue& clearValue, VkImageAspectFlags aspectMask, const VkClearRect& renderArea);
+	void resolve(ImageView* resolveAttachment);
 
-	VkFormat getFormat() const { return format; }
+	Format getFormat() const { return format; }
 	int getSampleCount() const { return image->getSampleCountFlagBits(); }
 	int rowPitchBytes(VkImageAspectFlagBits aspect) const { return image->rowPitchBytes(aspect, subresourceRange.baseMipLevel); }
 	int slicePitchBytes(VkImageAspectFlagBits aspect) const { return image->slicePitchBytes(aspect, subresourceRange.baseMipLevel); }
@@ -48,7 +50,7 @@ private:
 
 	Image*                     image = nullptr;
 	VkImageViewType            viewType = VK_IMAGE_VIEW_TYPE_2D;
-	VkFormat                   format = VK_FORMAT_UNDEFINED;
+	Format                     format;
 	VkComponentMapping         components = {};
 	VkImageSubresourceRange    subresourceRange = {};
 };

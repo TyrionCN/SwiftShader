@@ -15,14 +15,18 @@
 #ifndef sw_Context_hpp
 #define sw_Context_hpp
 
+#include "Vulkan/VkConfig.h"
 #include "Sampler.hpp"
 #include "Stream.hpp"
 #include "Point.hpp"
 #include "Vertex.hpp"
 #include "System/Types.hpp"
 
+#include <Vulkan/VkConfig.h>
+
 namespace vk
 {
+	class DescriptorSet;
 	class ImageView;
 	class PipelineLayout;
 } // namespace vk
@@ -107,6 +111,11 @@ namespace sw
 		TRANSPARENCY_LAST = TRANSPARENCY_ALPHA_TO_COVERAGE
 	};
 
+	struct PushConstantStorage
+	{
+		unsigned char data[vk::MAX_PUSH_CONSTANT_SIZE];
+	};
+
 	class Context
 	{
 	public:
@@ -159,22 +168,9 @@ namespace sw
 		DrawType drawType;
 
 		bool stencilEnable;
-		VkCompareOp stencilCompareMode;
-		int stencilReference;
-		int stencilMask;
-		VkStencilOp stencilFailOperation;
-		VkStencilOp stencilPassOperation;
-		VkStencilOp stencilZFailOperation;
-		int stencilWriteMask;
-
 		bool twoSidedStencil;
-		VkCompareOp stencilCompareModeCCW;
-		int stencilReferenceCCW;
-		int stencilMaskCCW;
-		VkStencilOp stencilFailOperationCCW;
-		VkStencilOp stencilPassOperationCCW;
-		VkStencilOp stencilZFailOperationCCW;
-		int stencilWriteMaskCCW;
+		VkStencilOpState frontStencil;
+		VkStencilOpState backStencil;
 
 		// Pixel processor states
 		VkCullModeFlags cullMode;
@@ -189,6 +185,7 @@ namespace sw
 		int colorWriteActive(int index);
 		bool colorUsed();
 
+		vk::DescriptorSet *descriptorSets[vk::MAX_BOUND_DESCRIPTOR_SETS];
 		Stream input[MAX_VERTEX_INPUTS];
 		void *indexBuffer;
 
@@ -233,6 +230,8 @@ namespace sw
 		unsigned int sampleMask;
 		unsigned int multiSampleMask;
 		int sampleCount;
+
+		PushConstantStorage pushConstants;
 	};
 }
 

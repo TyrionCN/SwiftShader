@@ -21,6 +21,8 @@
 namespace vk
 {
 
+const size_t Buffer::DataOffset = offsetof(Buffer, memory);
+
 Buffer::Buffer(const VkBufferCreateInfo* pCreateInfo, void* mem) :
 	flags(pCreateInfo->flags), size(pCreateInfo->size), usage(pCreateInfo->usage),
 	sharingMode(pCreateInfo->sharingMode), queueFamilyIndexCount(pCreateInfo->queueFamilyIndexCount),
@@ -91,9 +93,18 @@ void Buffer::copyTo(Buffer* dstBuffer, const VkBufferCopy& pRegion) const
 
 void Buffer::fill(VkDeviceSize dstOffset, VkDeviceSize fillSize, uint32_t data)
 {
-	ASSERT((fillSize + dstOffset) <= size);
+	size_t bytes = (fillSize == VK_WHOLE_SIZE) ? (size - dstOffset) : fillSize;
 
-	memset(getOffsetPointer(dstOffset), data, fillSize);
+	ASSERT((bytes + dstOffset) <= size);
+
+	uint32_t* memToWrite = static_cast<uint32_t*>(getOffsetPointer(dstOffset));
+
+	// Vulkan 1.1 spec: "If VK_WHOLE_SIZE is used and the remaining size of the buffer is
+	//                   not a multiple of 4, then the nearest smaller multiple is used."
+	for(; bytes >= 4; bytes -= 4, memToWrite++)
+	{
+		*memToWrite = data;
+	}
 }
 
 void Buffer::update(VkDeviceSize dstOffset, VkDeviceSize dataSize, const void* pData)
@@ -105,7 +116,12 @@ void Buffer::update(VkDeviceSize dstOffset, VkDeviceSize dataSize, const void* p
 
 void* Buffer::getOffsetPointer(VkDeviceSize offset) const
 {
-	return reinterpret_cast<char*>(memory) + offset;
+	return reinterpret_cast<uint8_t*>(memory) + offset;
+}
+
+uint8_t* Buffer::end() const
+{
+	return reinterpret_cast<uint8_t*>(getOffsetPointer(size + 1));
 }
 
 } // namespace vk

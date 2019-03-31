@@ -23,8 +23,9 @@
 #include <cstdio>
 
 #include <string>
+#include <tuple>
 
-#undef Bool
+#undef Bool // b/127920555
 
 #if !defined(NDEBUG) && (REACTOR_LLVM_VERSION >= 7)
 #define ENABLE_RR_PRINT 1 // Enables RR_PRINT(), RR_WATCH()
@@ -126,15 +127,21 @@ namespace rr
 	};
 
 	template<class T>
-	struct IntLiteral
+	struct BoolLiteral
 	{
 		struct type;
 	};
 
 	template<>
-	struct IntLiteral<Bool>
+	struct BoolLiteral<Bool>
 	{
 		typedef bool type;
+	};
+
+	template<class T>
+	struct IntLiteral
+	{
+		struct type;
 	};
 
 	template<>
@@ -174,6 +181,7 @@ namespace rr
 		explicit RValue(Value *rvalue);
 
 		RValue(const T &lvalue);
+		RValue(typename BoolLiteral<T>::type i);
 		RValue(typename IntLiteral<T>::type i);
 		RValue(typename FloatLiteral<T>::type f);
 		RValue(const Reference<T> &rhs);
@@ -213,6 +221,8 @@ namespace rr
 	RValue<Bool> operator!(RValue<Bool> val);
 	RValue<Bool> operator&&(RValue<Bool> lhs, RValue<Bool> rhs);
 	RValue<Bool> operator||(RValue<Bool> lhs, RValue<Bool> rhs);
+	RValue<Bool> operator!=(RValue<Bool> lhs, RValue<Bool> rhs);
+	RValue<Bool> operator==(RValue<Bool> lhs, RValue<Bool> rhs);
 
 	class Byte : public LValue<Byte>
 	{
@@ -1099,14 +1109,14 @@ namespace rr
 
 	RValue<Long> operator+(RValue<Long> lhs, RValue<Long> rhs);
 	RValue<Long> operator-(RValue<Long> lhs, RValue<Long> rhs);
-//	RValue<Long> operator*(RValue<Long> lhs, RValue<Long> rhs);
+	RValue<Long> operator*(RValue<Long> lhs, RValue<Long> rhs);
 //	RValue<Long> operator/(RValue<Long> lhs, RValue<Long> rhs);
 //	RValue<Long> operator%(RValue<Long> lhs, RValue<Long> rhs);
 //	RValue<Long> operator&(RValue<Long> lhs, RValue<Long> rhs);
 //	RValue<Long> operator|(RValue<Long> lhs, RValue<Long> rhs);
 //	RValue<Long> operator^(RValue<Long> lhs, RValue<Long> rhs);
 //	RValue<Long> operator<<(RValue<Long> lhs, RValue<Long> rhs);
-//	RValue<Long> operator>>(RValue<Long> lhs, RValue<Long> rhs);
+	RValue<Long> operator>>(RValue<Long> lhs, RValue<Long> rhs);
 	RValue<Long> operator+=(Long &lhs, RValue<Long> rhs);
 	RValue<Long> operator-=(Long &lhs, RValue<Long> rhs);
 //	RValue<Long> operator*=(Long &lhs, RValue<Long> rhs);
@@ -1872,7 +1882,6 @@ namespace rr
 		UInt4(int x, int yzw);
 		UInt4(int x, int y, int zw);
 		UInt4(int x, int y, int z, int w);
-		UInt4(unsigned int x, unsigned int y, unsigned int z, unsigned int w);
 		UInt4(RValue<UInt4> rhs);
 		UInt4(const UInt4 &rhs);
 		UInt4(const Reference<UInt4> &rhs);
@@ -1960,6 +1969,7 @@ namespace rr
 		Float(RValue<Float> rhs);
 		Float(const Float &rhs);
 		Float(const Reference<Float> &rhs);
+		Float(Argument<Float> argument);
 
 		template<int T>
 		Float(const SwizzleMask1<Float4, T> &rhs);
@@ -2225,6 +2235,18 @@ namespace rr
 	RValue<Pointer<Byte>> operator-=(Pointer<Byte> &lhs, RValue<Int> offset);
 	RValue<Pointer<Byte>> operator-=(Pointer<Byte> &lhs, RValue<UInt> offset);
 
+	template<typename T>
+	RValue<T> Load(RValue<Pointer<T>> pointer, unsigned int alignment, bool atomic, std::memory_order memoryOrder)
+	{
+		return RValue<T>(Nucleus::createLoad(pointer.value, T::getType(), false, alignment, atomic, memoryOrder));
+	}
+
+	template<typename T>
+	void Store(RValue<T> value, RValue<Pointer<T>> pointer, unsigned int alignment, bool atomic, std::memory_order memoryOrder)
+	{
+		Nucleus::createStore(value.value, pointer.value, T::getType(), false, alignment, atomic, memoryOrder);
+	}
+
 	template<class T, int S = 1>
 	class Array : public LValue<T>
 	{
@@ -2253,21 +2275,6 @@ namespace rr
 	template<class T>
 	void Return(RValue<Pointer<T>> ret);
 
-	template<unsigned int index, typename... Arguments>
-	struct ArgI;
-
-	template<typename Arg0, typename... Arguments>
-	struct ArgI<0, Arg0, Arguments...>
-	{
-		typedef Arg0 Type;
-	};
-
-	template<unsigned int index, typename Arg0, typename... Arguments>
-	struct ArgI<index, Arg0, Arguments...>
-	{
-		typedef typename ArgI<index - 1, Arguments...>::Type Type;
-	};
-
 	// Generic template, leave undefined!
 	template<typename FunctionType>
 	class Function;
@@ -2282,10 +2289,10 @@ namespace rr
 		virtual ~Function();
 
 		template<int index>
-		Argument<typename ArgI<index, Arguments...>::Type> Arg() const
+		Argument<typename std::tuple_element<index, std::tuple<Arguments...>>::type> Arg() const
 		{
 			Value *arg = Nucleus::getArgument(index);
-			return Argument<typename ArgI<index, Arguments...>::Type>(arg);
+			return Argument<typename std::tuple_element<index, std::tuple<Arguments...>>::type>(arg);
 		}
 
 		Routine *operator()(const char *name, ...);
@@ -2299,12 +2306,6 @@ namespace rr
 	class Function<Return()> : public Function<Return(Void)>
 	{
 	};
-
-	template<int index, typename Return, typename... Arguments>
-	Argument<typename ArgI<index, Arguments...>::Type> Arg(Function<Return(Arguments...)> &function)
-	{
-		return Argument<typename ArgI<index, Arguments...>::Type>(function.arg(index));
-	}
 
 	RValue<Long> Ticks();
 }
@@ -2394,6 +2395,12 @@ namespace rr
 	RValue<T>::RValue(const T &lvalue)
 	{
 		value = lvalue.loadValue();
+	}
+
+	template<class T>
+	RValue<T>::RValue(typename BoolLiteral<T>::type i)
+	{
+		value = Nucleus::createConstantBool(i);
 	}
 
 	template<class T>
@@ -2755,6 +2762,7 @@ namespace rr
 	{
 		Nucleus::createRet(Nucleus::createLoad(ret.address, Pointer<T>::getType()));
 		Nucleus::setInsertBlock(Nucleus::createBasicBlock());
+		Nucleus::createUnreachable();
 	}
 
 	template<class T>
@@ -2762,6 +2770,7 @@ namespace rr
 	{
 		Nucleus::createRet(ret.value);
 		Nucleus::setInsertBlock(Nucleus::createBasicBlock());
+		Nucleus::createUnreachable();
 	}
 
 	template<typename Return, typename... Arguments>
@@ -2978,6 +2987,11 @@ namespace rr
 	};
 
 	// PrintValue::Ty<T> specializations for standard Reactor types.
+	template <> struct PrintValue::Ty<Bool>
+	{
+		static constexpr const char* fmt = "%d";
+		static std::vector<Value*> val(const RValue<Bool>& v) { return {v.value}; }
+	};
 	template <> struct PrintValue::Ty<Byte>
 	{
 		static constexpr const char* fmt = "%d";
@@ -3098,7 +3112,11 @@ namespace rr
 	// See: https://renenyffenegger.ch/notes/development/languages/C-C-plus-plus/preprocessor/macros/__VA_ARGS__/count-arguments
 	// Note, this doesn't attempt to use the ##__VA_ARGS__ trick to handle 0
 	// args as this appears to still be broken on certain compilers.
-	#define RR_GET_NTH_ARG(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, N, ...) N
+	// MSVC also has issues with variadic macros which requires the RR_VA_MSVC_BUG() work-around.
+	// See: https://stackoverflow.com/a/48711060
+	#define RR_VA_MSVC_BUG(MACRO, ARGS) MACRO ARGS
+	#define RR_GET_NTH_ARG_EX(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, N, ...) N
+	#define RR_GET_NTH_ARG(...) RR_VA_MSVC_BUG(RR_GET_NTH_ARG_EX, (__VA_ARGS__))
 	#define RR_COUNT_ARGUMENTS(...) RR_GET_NTH_ARG(__VA_ARGS__, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
 	static_assert(1 == RR_COUNT_ARGUMENTS(a), "RR_COUNT_ARGUMENTS broken"); // Sanity checks.
 	static_assert(2 == RR_COUNT_ARGUMENTS(a, b), "RR_COUNT_ARGUMENTS broken");
@@ -3114,15 +3132,17 @@ namespace rr
 	#define RR_WATCH_CONCAT2(a, b) RR_WATCH_CONCAT(a, b)
 	#define RR_WATCH_FMT(...) RR_WATCH_CONCAT2(RR_WATCH_FMT_, RR_COUNT_ARGUMENTS(__VA_ARGS__))(__VA_ARGS__)
 	#define RR_WATCH_FMT_1(_1) "\n  " #_1 ": {0}"
-	#define RR_WATCH_FMT_2(_1, _2)                                   RR_WATCH_FMT_1(_1) "\n  " #_2 ": {1}"
-	#define RR_WATCH_FMT_3(_1, _2, _3)                               RR_WATCH_FMT_2(_1, _2) "\n  " #_3 ": {2}"
-	#define RR_WATCH_FMT_4(_1, _2, _3, _4)                           RR_WATCH_FMT_3(_1, _2, _3) "\n  " #_4 ": {3}"
-	#define RR_WATCH_FMT_5(_1, _2, _3, _4, _5)                       RR_WATCH_FMT_4(_1, _2, _3, _4) "\n  " #_5 ": {4}"
-	#define RR_WATCH_FMT_6(_1, _2, _3, _4, _5, _6)                   RR_WATCH_FMT_5(_1, _2, _3, _4, _5) "\n  " #_6 ": {5}"
-	#define RR_WATCH_FMT_7(_1, _2, _3, _4, _5, _6, _7)               RR_WATCH_FMT_6(_1, _2, _3, _4, _5, _6) "\n  " #_7 ": {6}"
-	#define RR_WATCH_FMT_8(_1, _2, _3, _4, _5, _6, _7, _8)           RR_WATCH_FMT_7(_1, _2, _3, _4, _5, _6, _7) "\n  " #_8 ": {7}"
-	#define RR_WATCH_FMT_9(_1, _2, _3, _4, _5, _6, _7, _8, _9)       RR_WATCH_FMT_8(_1, _2, _3, _4, _5, _6, _7, _8) "\n  " #_9 ": {8}"
-	#define RR_WATCH_FMT_10(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10) RR_WATCH_FMT_9(_1, _2, _3, _4, _5, _6, _7, _8, _9) "\n  " #_10 ": {9}"
+	#define RR_WATCH_FMT_2(_1, _2)                                             RR_WATCH_FMT_1(_1) "\n  " #_2 ": {1}"
+	#define RR_WATCH_FMT_3(_1, _2, _3)                                         RR_WATCH_FMT_2(_1, _2) "\n  " #_3 ": {2}"
+	#define RR_WATCH_FMT_4(_1, _2, _3, _4)                                     RR_WATCH_FMT_3(_1, _2, _3) "\n  " #_4 ": {3}"
+	#define RR_WATCH_FMT_5(_1, _2, _3, _4, _5)                                 RR_WATCH_FMT_4(_1, _2, _3, _4) "\n  " #_5 ": {4}"
+	#define RR_WATCH_FMT_6(_1, _2, _3, _4, _5, _6)                             RR_WATCH_FMT_5(_1, _2, _3, _4, _5) "\n  " #_6 ": {5}"
+	#define RR_WATCH_FMT_7(_1, _2, _3, _4, _5, _6, _7)                         RR_WATCH_FMT_6(_1, _2, _3, _4, _5, _6) "\n  " #_7 ": {6}"
+	#define RR_WATCH_FMT_8(_1, _2, _3, _4, _5, _6, _7, _8)                     RR_WATCH_FMT_7(_1, _2, _3, _4, _5, _6, _7) "\n  " #_8 ": {7}"
+	#define RR_WATCH_FMT_9(_1, _2, _3, _4, _5, _6, _7, _8, _9)                 RR_WATCH_FMT_8(_1, _2, _3, _4, _5, _6, _7, _8) "\n  " #_9 ": {8}"
+	#define RR_WATCH_FMT_10(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10)           RR_WATCH_FMT_9(_1, _2, _3, _4, _5, _6, _7, _8, _9) "\n  " #_10 ": {9}"
+	#define RR_WATCH_FMT_11(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11)      RR_WATCH_FMT_10(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10) "\n  " #_11 ": {10}"
+	#define RR_WATCH_FMT_12(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12) RR_WATCH_FMT_11(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11) "\n  " #_12 ": {11}"
 
 	// RR_WATCH() is a helper that prints the name and value of all the supplied
 	// arguments.

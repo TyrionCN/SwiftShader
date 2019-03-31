@@ -109,13 +109,15 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 # Initialize submodules
 ###########################################################
 
-if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/googletest/.git)
-    message(WARNING "
-  third_party/googletest submodule missing.
-  Running 'git submodule update --init' to download it:
-    ")
+if (NOT TARGET gtest)
+    if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/googletest/.git)
+        message(WARNING "
+      third_party/googletest submodule missing.
+      Running 'git submodule update --init' to download it:
+        ")
 
-    execute_process(COMMAND git submodule update --init)
+        execute_process(COMMAND git submodule update --init)
+    endif()
 endif()
 
 ###########################################################
@@ -1871,6 +1873,7 @@ if(${REACTOR_BACKEND} STREQUAL "Subzero")
     )
 
     set(SUBZERO_REACTOR_LIST
+        ${SOURCE_DIR}/Reactor/Reactor.cpp
         ${SOURCE_DIR}/Reactor/SubzeroReactor.cpp
         ${SOURCE_DIR}/Reactor/Routine.cpp
         ${SOURCE_DIR}/Reactor/Optimizer.cpp
@@ -1963,6 +1966,7 @@ list(REMOVE_ITEM SWIFTSHADER_LIST
 )
 
 set(REACTOR_LLVM_LIST
+    ${SOURCE_DIR}/Reactor/Reactor.cpp
     ${SOURCE_DIR}/Reactor/LLVMReactor.cpp
     ${SOURCE_DIR}/Reactor/Nucleus.hpp
     ${SOURCE_DIR}/Reactor/Routine.cpp
@@ -2190,8 +2194,8 @@ if(BUILD_EGL)
         POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:libEGL>/translator
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:libEGL> $<TARGET_FILE_DIR:libEGL>/translator/${LIB_PREFIX}EGL_translator${CMAKE_SHARED_LIBRARY_SUFFIX}
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_SOURCE_DIR}/out/${CMAKE_SYSTEM_NAME}/
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:libEGL> ${CMAKE_CURRENT_SOURCE_DIR}/out/${CMAKE_SYSTEM_NAME}/
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/${CMAKE_SYSTEM_NAME}/
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:libEGL> ${CMAKE_BINARY_DIR}/${CMAKE_SYSTEM_NAME}/
     )
 endif()
 
@@ -2210,8 +2214,8 @@ if(BUILD_GLESv2)
         POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:libGLESv2>/translator
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:libGLESv2> $<TARGET_FILE_DIR:libGLESv2>/translator/${LIB_PREFIX}GLES_V2_translator${CMAKE_SHARED_LIBRARY_SUFFIX}
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_SOURCE_DIR}/out/${CMAKE_SYSTEM_NAME}/
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:libGLESv2> ${CMAKE_CURRENT_SOURCE_DIR}/out/${CMAKE_SYSTEM_NAME}/
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/${CMAKE_SYSTEM_NAME}/
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:libGLESv2> ${CMAKE_BINARY_DIR}/${CMAKE_SYSTEM_NAME}/
     )
 endif()
 
@@ -2234,11 +2238,13 @@ if(BUILD_GLES_CM)
 endif()
 
 if(BUILD_VULKAN)
-    # This variable is also used by SPIRV-Tools to locate SPIRV-Headers
-    set(SPIRV-Headers_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/SPIRV-Headers")
-    list(APPEND VULKAN_INCLUDE_DIR "${SPIRV-Headers_SOURCE_DIR}/include")
+    if (NOT TARGET SPIRV-Tools)
+        # This variable is also used by SPIRV-Tools to locate SPIRV-Headers
+        set(SPIRV-Headers_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/SPIRV-Headers")
+        list(APPEND VULKAN_INCLUDE_DIR "${SPIRV-Headers_SOURCE_DIR}/include")
 
-    add_subdirectory(third_party/SPIRV-Tools)
+        add_subdirectory(third_party/SPIRV-Tools)
+    endif()
 
     add_library(libvk_swiftshader SHARED ${VULKAN_LIST})
     set_target_properties(libvk_swiftshader PROPERTIES
@@ -2254,12 +2260,12 @@ if(BUILD_VULKAN)
         POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:libvk_swiftshader>/translator
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:libvk_swiftshader> $<TARGET_FILE_DIR:libvk_swiftshader>/translator/${LIB_PREFIX}Vulkan_translator${CMAKE_SHARED_LIBRARY_SUFFIX}
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_SOURCE_DIR}/out/${CMAKE_SYSTEM_NAME}/
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:libvk_swiftshader> ${CMAKE_CURRENT_SOURCE_DIR}/out/${CMAKE_SYSTEM_NAME}/
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/${CMAKE_SYSTEM_NAME}/
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:libvk_swiftshader> ${CMAKE_BINARY_DIR}/${CMAKE_SYSTEM_NAME}/
     )
     configure_file(
         "${VULKAN_DIR}/vk_swiftshader_icd.json.tmpl"
-        "${CMAKE_CURRENT_SOURCE_DIR}/out/${CMAKE_SYSTEM_NAME}/vk_swiftshader_icd.json")
+        "${CMAKE_BINARY_DIR}/${CMAKE_SYSTEM_NAME}/vk_swiftshader_icd.json")
 endif()
 
 ###########################################################
@@ -2326,6 +2332,7 @@ if(BUILD_TESTS)
     endif()
 endif()
 
+# GLES unit tests. TODO: Rename 'unittests' to 'gles-unittests'?
 if(BUILD_TESTS)
     set(UNITTESTS_LIST
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/GLESUnitTests/main.cpp
@@ -2348,4 +2355,31 @@ if(BUILD_TESTS)
     )
 
     target_link_libraries(unittests libEGL libGLESv2 ${OS_LIBS})
+endif()
+
+if(BUILD_TESTS AND BUILD_VULKAN)
+    set(UNITTESTS_LIST
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/VulkanUnitTests/Device.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/VulkanUnitTests/Driver.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/VulkanUnitTests/main.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/VulkanUnitTests/unittests.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/googletest/googletest/src/gtest-all.cc
+    )
+
+    set(UNITTESTS_INCLUDE_DIR
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/googletest/googletest/include/
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/googletest/googlemock/include/
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/googletest/googletest/
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/SPIRV-Tools/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/
+    )
+
+    add_executable(vk-unittests ${UNITTESTS_LIST})
+    set_target_properties(vk-unittests PROPERTIES
+        INCLUDE_DIRECTORIES "${UNITTESTS_INCLUDE_DIR}"
+        FOLDER "Tests"
+        COMPILE_DEFINITIONS "STANDALONE"
+    )
+
+    target_link_libraries(vk-unittests ${OS_LIBS} SPIRV-Tools)
 endif()

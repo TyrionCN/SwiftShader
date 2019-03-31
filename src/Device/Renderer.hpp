@@ -26,6 +26,11 @@
 
 #include <list>
 
+namespace vk
+{
+	class DescriptorSet;
+}
+
 namespace sw
 {
 	class Clipper;
@@ -58,8 +63,6 @@ namespace sw
 		bool symmetricNormalizedDepth;
 		bool booleanFaceRegister;
 		bool fullPixelPositionRegister;
-		bool leadingVertexFirst;
-		bool secondaryColor;
 		bool colorsDefaultToZero;
 	};
 
@@ -69,8 +72,6 @@ namespace sw
 		true,    // symmetricNormalizedDepth
 		true,    // booleanFaceRegister
 		true,    // fullPixelPositionRegister
-		false,   // leadingVertexFirst
-		false,   // secondaryColor
 		true,    // colorsDefaultToZero
 	};
 
@@ -80,8 +81,6 @@ namespace sw
 		false,   // symmetricNormalizedDepth
 		false,   // booleanFaceRegister
 		false,   // fullPixelPositionRegister
-		true,    // leadingVertexFirst
-		true,    // secondardyColor
 		false,   // colorsDefaultToZero
 	};
 
@@ -115,40 +114,17 @@ namespace sw
 	{
 		const Constants *constants;
 
+		vk::DescriptorSet *descriptorSets[vk::MAX_BOUND_DESCRIPTOR_SETS];
+
 		const void *input[MAX_VERTEX_INPUTS];
 		unsigned int stride[MAX_VERTEX_INPUTS];
 		Texture mipmap[TOTAL_IMAGE_UNITS];
 		const void *indices;
 
-		struct VS
-		{
-			float4 c[VERTEX_UNIFORM_VECTORS + 1];   // One extra for indices out of range, c[VERTEX_UNIFORM_VECTORS] = {0, 0, 0, 0}
-			byte* u[MAX_UNIFORM_BUFFER_BINDINGS];
-			byte* t[MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS];
-			unsigned int reg[MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS]; // Offset used when reading from registers, in components
-			unsigned int row[MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS]; // Number of rows to read
-			unsigned int col[MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS]; // Number of columns to read
-			unsigned int str[MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS]; // Number of components between each varying in output buffer
-			int4 i[16];
-			bool b[16];
-		};
-
-		struct PS
-		{
-			float4 c[FRAGMENT_UNIFORM_VECTORS];
-			byte* u[MAX_UNIFORM_BUFFER_BINDINGS];
-			int4 i[16];
-			bool b[16];
-		};
-
-		VS vs;
-		PS ps;
-
 		int instanceID;
 		float lineWidth;
 
 		PixelProcessor::Stencil stencil[2];   // clockwise, counterclockwise
-		PixelProcessor::Stencil stencilCCW;
 		PixelProcessor::Factor factor;
 		unsigned int occlusion[16];   // Number of pixels passing depth test
 
@@ -187,6 +163,8 @@ namespace sw
 		float4 a2c1;
 		float4 a2c2;
 		float4 a2c3;
+
+		PushConstantStorage pushConstants;
 	};
 
 	class Renderer : public VertexProcessor, public PixelProcessor, public SetupProcessor
@@ -249,10 +227,6 @@ namespace sw
 
 		void draw(DrawType drawType, unsigned int count, bool update = true);
 
-		void clear(void *value, VkFormat format, Surface *dest, const Rect &rect, unsigned int rgbaMask);
-		void blit(Surface *source, const SliceRectF &sRect, Surface *dest, const SliceRect &dRect, bool filter, bool isStencil = false, bool sRGBconversion = true);
-		void blit3D(Surface *source, Surface *dest);
-
 		void setContext(const sw::Context& context);
 
 		void setMultiSampleMask(unsigned int mask);
@@ -271,10 +245,12 @@ namespace sw
 
 		// Viewport & Clipper
 		void setViewport(const VkViewport &viewport);
-		void setScissor(const Rect &scissor);
+		void setScissor(const VkRect2D &scissor);
 
 		void addQuery(Query *query);
 		void removeQuery(Query *query);
+
+		void advanceInstanceAttributes();
 
 		void synchronize();
 
@@ -315,7 +291,7 @@ namespace sw
 		Clipper *clipper;
 		Blitter *blitter;
 		VkViewport viewport;
-		Rect scissor;
+		VkRect2D scissor;
 		int clipFlags;
 
 		Triangle *triangleBatch[16];
